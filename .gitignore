@@ -1,0 +1,57 @@
+# Node
+node_modules/
+.next/
+*.log
+.env
+.env.local
+.env*.local
+
+# Python (external/musetalk, external/cosyvoice)
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# 大模型权重（不要进仓库，单独下载）
+**/checkpoints/
+**/pretrained_models/
+**/weights/
+**/*.pth
+**/*.safetensors
+**/*.bin
+**/*.onnx
+**/*.ckpt
+
+# 渲染产物 / 临时文件
+platform/public/output/
+platform/public/samples/
+*.mp4
+*.mov
+*.wav
+*.webm
+# 但保留示例素材占位（如有需要后续手动 !include）
+
+# Remotion 缓存
+.remotion/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Go (external/remotion 里有 go.work)
+*.exe
+
+# Bun / pnpm / turbo
+.turbo/
+bun.lockb
+
+# External upstream repositories are local-only.
+# Keep instructions, do not vendor full source trees into this repo.
+external/*
+!external/README.md
+!external/.gitkeep
