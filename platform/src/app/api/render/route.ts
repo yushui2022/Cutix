@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { exec } from "child_process";
+import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -22,7 +22,7 @@ function words(text: string, offsetMs = 0) {
   const result: { text: string; startMs: number; endMs: number }[] = [];
   let pos = 0;
   while (pos < text.length) {
-    const size = Math.min(2 + Math.floor(Math.random() * 2), text.length - pos);
+    const size = Math.min(pos % 5 === 0 ? 3 : 2, text.length - pos);
     result.push({
       text: text.slice(pos, pos + size),
       startMs: offsetMs + (pos / text.length) * total,
@@ -76,20 +76,40 @@ function buildScript(ipId: string) {
 
 function runRemotionCli(props: unknown, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const propsJson = JSON.stringify(props).replace(/"/g, '\\"');
-    const cmd = `npx remotion render SplitScreen "${outputPath}" --props="${propsJson}"`;
-    const child = exec(cmd, { cwd: process.cwd(), maxBuffer: 10 * 1024 * 1024, timeout: 5 * 60 * 1000 });
-    let lastProgress = "";
-    child.stderr?.on("data", (d) => { lastProgress = d.toString(); });
+    const propsJson = JSON.stringify(props);
+    const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+    const child = spawn(
+      npx,
+      ["remotion", "render", "SplitScreen", outputPath, `--props=${propsJson}`],
+      {
+        cwd: process.cwd(),
+        shell: false,
+        windowsHide: true,
+        timeout: 5 * 60 * 1000,
+      },
+    );
+    let lastOutput = "";
+    const appendOutput = (chunk: Buffer) => {
+      lastOutput = `${lastOutput}${chunk.toString()}`.slice(-2000);
+    };
+    child.stdout?.on("data", appendOutput);
+    child.stderr?.on("data", appendOutput);
+    child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`Remotion exit ${code}: ${lastProgress.slice(-200)}`));
+      else reject(new Error(`Remotion exit ${code}: ${lastOutput.slice(-500)}`));
     });
   });
 }
 
 export async function POST(request: NextRequest) {
-  const { ipId } = await request.json();
+  const body: unknown = await request.json();
+  const ipId = typeof body === "object" && body !== null && "ipId" in body
+    ? String((body as { ipId: unknown }).ipId)
+    : "";
+  if (!ipConfigs[ipId]) {
+    return Response.json({ error: "Unknown IP" }, { status: 400 });
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -116,9 +136,10 @@ export async function POST(request: NextRequest) {
         fs.copyFileSync(outputFile, publicFile);
 
         send({ status: "完成！", resultUrl: `/output/${outputId}.mp4` });
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error("Render error:", error);
-        send({ status: `失败: ${error.message}` });
+        const message = error instanceof Error ? error.message : "Unknown render error";
+        send({ status: `失败: ${message}` });
       } finally {
         controller.close();
       }
@@ -126,6 +147,10 @@ export async function POST(request: NextRequest) {
   });
 
   return new Response(stream, {
-    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
   });
 }

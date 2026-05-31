@@ -1,6 +1,7 @@
 # Node
 node_modules/
 .next/
+.tmp/
 *.log
 .env
 .env.local
@@ -27,6 +28,7 @@ venv/
 # 渲染产物 / 临时文件
 platform/public/output/
 platform/public/samples/
+platform/out/
 *.mp4
 *.mov
 *.wav

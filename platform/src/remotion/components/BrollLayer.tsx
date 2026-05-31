@@ -1,4 +1,4 @@
-import { useCurrentFrame, useVideoConfig, interpolate } from "remotion";
+import { AbsoluteFill, Img, Video, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 
 export const BrollLayer: React.FC<{
   videoSrc?: string;
@@ -15,37 +15,26 @@ export const BrollLayer: React.FC<{
 
   if (videoSrc) {
     return (
-      <div
+      <AbsoluteFill
         style={{
-          position: "absolute",
-          top: "60%",
-          left: 0,
-          width: "100%",
-          height: "30%",
           overflow: "hidden",
           borderTop: `2px solid ${fallbackColor}44`,
         }}
       >
-        <video
+        <Video
           src={videoSrc}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          autoPlay
           loop
-          muted
+          volume={0}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
-      </div>
+      </AbsoluteFill>
     );
   }
 
   if (images && images.length > 0) {
     return (
-      <div
+      <AbsoluteFill
         style={{
-          position: "absolute",
-          top: "60%",
-          left: 0,
-          width: "100%",
-          height: "30%",
           overflow: "hidden",
           borderTop: `2px solid ${fallbackColor}44`,
           display: "flex",
@@ -54,7 +43,7 @@ export const BrollLayer: React.FC<{
           background: "#111",
         }}
       >
-        <img
+        <Img
           src={images[imageIndex]}
           style={{
             width: "100%",
@@ -63,7 +52,7 @@ export const BrollLayer: React.FC<{
             opacity: interpolate(frame % (fps * 3), [0, fps * 0.3], [0, 1]),
           }}
         />
-      </div>
+      </AbsoluteFill>
     );
   }
 
@@ -72,13 +61,8 @@ export const BrollLayer: React.FC<{
   const card2X = interpolate((frame + fps * 2) % (fps * 4), [0, fps * 0.5, fps * 3.5, fps * 4], [300, 0, 0, 300]);
 
   return (
-    <div
+    <AbsoluteFill
       style={{
-        position: "absolute",
-        top: "60%",
-        left: 0,
-        width: "100%",
-        height: "30%",
         borderTop: `2px solid ${fallbackColor}44`,
         background: "linear-gradient(180deg, #111, #1a1a2e)",
         display: "flex",
@@ -116,6 +100,6 @@ export const BrollLayer: React.FC<{
       >
         转化率提升 40%
       </div>
-    </div>
+    </AbsoluteFill>
   );
 };

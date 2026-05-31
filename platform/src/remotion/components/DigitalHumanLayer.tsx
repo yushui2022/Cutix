@@ -1,4 +1,4 @@
-import { AbsoluteFill, Img, useCurrentFrame, useVideoConfig, interpolate } from "remotion";
+import { AbsoluteFill, Video, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
 
 export const DigitalHumanLayer: React.FC<{
   videoSrc?: string;
@@ -17,36 +17,25 @@ export const DigitalHumanLayer: React.FC<{
 
   if (videoSrc) {
     return (
-      <div
+      <AbsoluteFill
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "60%",
           overflow: "hidden",
           transform: `translateY(${floatY}px)`,
         }}
       >
-        <video
+        <Video
           src={videoSrc}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          autoPlay
           loop
-          muted
+          volume={0}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
         />
-      </div>
+      </AbsoluteFill>
     );
   }
 
   return (
-    <div
+    <AbsoluteFill
       style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "60%",
         background: `linear-gradient(180deg, ${fallbackColor}22, ${fallbackColor}08)`,
         display: "flex",
         alignItems: "center",
@@ -88,6 +77,6 @@ export const DigitalHumanLayer: React.FC<{
           {label}
         </div>
       </div>
-    </div>
+    </AbsoluteFill>
   );
 };

@@ -25,7 +25,7 @@ type SplitScreenProps = {
 
 export const SplitScreen: React.FC<SplitScreenProps> = ({ brand, scenes, bgmUrl }) => {
   const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps } = useVideoConfig();
   const currentSec = frame / fps;
 
   // Find the active scene
@@ -41,22 +41,15 @@ export const SplitScreen: React.FC<SplitScreenProps> = ({ brand, scenes, bgmUrl 
 
   const sceneElapsedMs = (currentSec - activeScene.startSec) * 1000;
 
-  // Adjust subtitles to be relative to scene start
-  const adjustedWords = activeScene.subtitleWords.map((w) => ({
-    ...w,
-    startMs: w.startMs,
-    endMs: w.endMs,
-  }));
-
   // Determine layout regions based on layout mode
   const isDhVisible = activeScene.layout !== "full_broll";
   const isBrollVisible = activeScene.layout !== "full_dh";
 
   const dhTop = activeScene.layout === "broll_top_dh_bottom" ? "60%" : "0%";
-  const dhHeight = activeScene.layout === "full_dh" ? "100%" : "60%";
+  const dhHeight = activeScene.layout === "full_dh" ? "90%" : activeScene.layout === "broll_top_dh_bottom" ? "30%" : "60%";
 
   const brollTop = activeScene.layout === "dh_top_broll_bottom" ? "60%" : "0%";
-  const brollHeight = activeScene.layout === "full_broll" ? "100%" : activeScene.layout === "broll_top_dh_bottom" ? "60%" : "30%";
+  const brollHeight = activeScene.layout === "full_broll" ? "90%" : activeScene.layout === "broll_top_dh_bottom" ? "60%" : "30%";
 
   // Fade in effect for scene transitions
   const fadeIn = interpolate(
@@ -153,7 +146,7 @@ export const SplitScreen: React.FC<SplitScreenProps> = ({ brand, scenes, bgmUrl 
       )}
 
       {/* Subtitle Bar */}
-      <SubtitleBar words={adjustedWords} accentColor={brand.primaryColor} />
+      <SubtitleBar words={activeScene.subtitleWords} accentColor={brand.primaryColor} />
 
       {/* Brand logo watermark */}
       <div
