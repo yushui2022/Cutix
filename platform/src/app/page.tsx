@@ -18,6 +18,7 @@ import {
   UserRound,
   WandSparkles,
 } from "lucide-react";
+import { defaultBrands, defaultTemplates } from "@/lib/default-config";
 import type { LucideIcon } from "lucide-react";
 
 type IP = {
@@ -64,65 +65,8 @@ type PipelineStep = {
   icon: LucideIcon;
 };
 
-const ips: IP[] = [
-  {
-    id: "wang",
-    name: "老王餐饮",
-    industry: "餐饮招商加盟",
-    color: "#FF3B5C",
-    tone: "专业、直接、有紧迫感",
-    promise: "突出回本模型、门店复制和招商转化",
-    defaultBgm: "商务节奏 BGM",
-  },
-  {
-    id: "li",
-    name: "李总商业",
-    industry: "企业增长服务",
-    color: "#38BDF8",
-    tone: "理性、可信、数据化",
-    promise: "强调方法论、案例证据和增长结果",
-    defaultBgm: "稳健科技 BGM",
-  },
-  {
-    id: "zhang",
-    name: "张姐美妆",
-    industry: "美妆护肤品牌",
-    color: "#F472B6",
-    tone: "亲近、审美强、重体验",
-    promise: "突出前后对比、真实体验和社交种草",
-    defaultBgm: "轻快生活 BGM",
-  },
-];
-
-const templates: Template[] = [
-  {
-    id: "split",
-    name: "数字人 + 素材分屏",
-    category: "口播混剪",
-    duration: "30s",
-    layout: "数字人在上，素材在下",
-    bestFor: "招商、口播、IP 短视频",
-    accent: "#FF3B5C",
-  },
-  {
-    id: "product",
-    name: "产品卖点介绍",
-    category: "产品",
-    duration: "35s",
-    layout: "素材主画面，数字人角标",
-    bestFor: "产品讲解、服务说明",
-    accent: "#14B8A6",
-  },
-  {
-    id: "case",
-    name: "案例证明短片",
-    category: "案例",
-    duration: "40s",
-    layout: "数据卡 + B-roll + 字幕",
-    bestFor: "案例、背书、成交证明",
-    accent: "#A855F7",
-  },
-];
+const seedIps: IP[] = defaultBrands;
+const seedTemplates: Template[] = defaultTemplates;
 
 const seedAssets: Asset[] = [
   {
@@ -213,8 +157,12 @@ const statusStyle: Record<Asset["status"], string> = {
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedIP, setSelectedIP] = useState<IP>(ips[0]);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template>(templates[0]);
+  const [ips, setIps] = useState<IP[]>(seedIps);
+  const [templates, setTemplates] = useState<Template[]>(seedTemplates);
+  const [selectedIP, setSelectedIP] = useState<IP>(seedIps[0]);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template>(seedTemplates[0]);
+  const [brandDraft, setBrandDraft] = useState<IP>(seedIps[0]);
+  const [templateDraft, setTemplateDraft] = useState<Template>(seedTemplates[0]);
   const [selectedAssets, setSelectedAssets] = useState<string[]>(["store", "product", "avatar"]);
   const [assets, setAssets] = useState<Asset[]>(seedAssets);
   const [targetPlatform, setTargetPlatform] = useState(platforms[0]);
@@ -226,6 +174,41 @@ export default function Home() {
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
   const [resultUrl, setResultUrl] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/config")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load config"))))
+      .then((payload: { brands?: IP[]; templates?: Template[] }) => {
+        if (cancelled) return;
+        const nextIps = Array.isArray(payload.brands) && payload.brands.length > 0 ? payload.brands : seedIps;
+        const nextTemplates = Array.isArray(payload.templates) && payload.templates.length > 0
+          ? payload.templates
+          : seedTemplates;
+        setIps(nextIps);
+        setTemplates(nextTemplates);
+        setSelectedIP(nextIps.find((ip) => ip.id === selectedIP.id) ?? nextIps[0]);
+        setSelectedTemplate(
+          nextTemplates.find((template) => template.id === selectedTemplate.id) ?? nextTemplates[0],
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("配置加载失败，当前显示默认品牌和模板");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setBrandDraft(selectedIP);
+  }, [selectedIP]);
+
+  useEffect(() => {
+    setTemplateDraft(selectedTemplate);
+  }, [selectedTemplate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -355,6 +338,44 @@ export default function Home() {
     await patchAsset(asset, { status: nextStatus });
   };
 
+  const saveConfigItem = async (kind: "brand" | "template", item: IP | Template) => {
+    const res = await fetch("/api/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, item }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return (await res.json()) as { brands?: IP[]; templates?: Template[] };
+  };
+
+  const saveBrandConfig = async () => {
+    try {
+      const payload = await saveConfigItem("brand", brandDraft);
+      const nextIps = Array.isArray(payload.brands) ? payload.brands : ips;
+      setIps(nextIps);
+      const nextBrand = nextIps.find((ip) => ip.id === brandDraft.id) ?? brandDraft;
+      setSelectedIP(nextBrand);
+      setStatus(`已保存「${nextBrand.name}」品牌配置`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("品牌配置保存失败: " + message);
+    }
+  };
+
+  const saveTemplateConfig = async () => {
+    try {
+      const payload = await saveConfigItem("template", templateDraft);
+      const nextTemplates = Array.isArray(payload.templates) ? payload.templates : templates;
+      setTemplates(nextTemplates);
+      const nextTemplate = nextTemplates.find((template) => template.id === templateDraft.id) ?? templateDraft;
+      setSelectedTemplate(nextTemplate);
+      setStatus(`已保存「${nextTemplate.name}」模板配置`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("模板配置保存失败: " + message);
+    }
+  };
+
   const processEventLine = (line: string) => {
     if (!line.startsWith("data: ")) return;
 
@@ -416,6 +437,8 @@ export default function Home() {
   const cardBase = "glass rounded-2xl p-5";
   const optionBase =
     "min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left card-hover";
+  const fieldClass =
+    "mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none transition focus:border-[#ff3b5c]/60 focus:bg-white/[0.06]";
 
   return (
     <main className="relative z-10 min-h-screen overflow-x-hidden text-[var(--color-ink)]">
@@ -618,6 +641,80 @@ export default function Home() {
                 );
               })}
             </div>
+
+            <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.025] p-4">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-white">品牌配置</div>
+                  <div className="mt-0.5 text-xs text-white/45">保存后会写入本地配置，后续文案和模板都从这里读取。</div>
+                </div>
+                <button
+                  className="btn-primary inline-flex w-fit items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold text-white"
+                  onClick={saveBrandConfig}
+                  type="button"
+                >
+                  保存品牌
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label className="text-xs font-medium text-white/60">
+                  品牌名
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setBrandDraft({ ...brandDraft, name: event.target.value })}
+                    value={brandDraft.name}
+                  />
+                </label>
+                <label className="text-xs font-medium text-white/60">
+                  行业/用途
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setBrandDraft({ ...brandDraft, industry: event.target.value })}
+                    value={brandDraft.industry}
+                  />
+                </label>
+                <label className="text-xs font-medium text-white/60">
+                  口吻
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setBrandDraft({ ...brandDraft, tone: event.target.value })}
+                    value={brandDraft.tone}
+                  />
+                </label>
+                <label className="text-xs font-medium text-white/60">
+                  默认 BGM
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setBrandDraft({ ...brandDraft, defaultBgm: event.target.value })}
+                    value={brandDraft.defaultBgm}
+                  />
+                </label>
+                <label className="text-xs font-medium text-white/60">
+                  品牌色
+                  <div className="mt-1.5 flex gap-2">
+                    <input
+                      className="h-10 w-12 rounded-lg border border-white/10 bg-white/[0.04] p-1"
+                      onChange={(event) => setBrandDraft({ ...brandDraft, color: event.target.value })}
+                      type="color"
+                      value={brandDraft.color}
+                    />
+                    <input
+                      className={fieldClass.replace("mt-1.5 ", "")}
+                      onChange={(event) => setBrandDraft({ ...brandDraft, color: event.target.value })}
+                      value={brandDraft.color}
+                    />
+                  </div>
+                </label>
+                <label className="text-xs font-medium text-white/60 md:col-span-2">
+                  核心表达
+                  <textarea
+                    className={`${fieldClass} min-h-20 resize-none`}
+                    onChange={(event) => setBrandDraft({ ...brandDraft, promise: event.target.value })}
+                    value={brandDraft.promise}
+                  />
+                </label>
+              </div>
+            </div>
           </section>
 
           <section className={cardBase}>
@@ -778,6 +875,80 @@ export default function Home() {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.025] p-4">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-white">模板配置</div>
+                  <div className="mt-0.5 text-xs text-white/45">保存后会影响预览和后续 Remotion Timeline 生成。</div>
+                </div>
+                <button
+                  className="btn-primary inline-flex w-fit items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold text-white"
+                  onClick={saveTemplateConfig}
+                  type="button"
+                >
+                  保存模板
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label className="text-xs font-medium text-white/60">
+                  模板名
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setTemplateDraft({ ...templateDraft, name: event.target.value })}
+                    value={templateDraft.name}
+                  />
+                </label>
+                <label className="text-xs font-medium text-white/60">
+                  分类
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setTemplateDraft({ ...templateDraft, category: event.target.value })}
+                    value={templateDraft.category}
+                  />
+                </label>
+                <label className="text-xs font-medium text-white/60">
+                  时长
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setTemplateDraft({ ...templateDraft, duration: event.target.value })}
+                    value={templateDraft.duration}
+                  />
+                </label>
+                <label className="text-xs font-medium text-white/60">
+                  强调色
+                  <div className="mt-1.5 flex gap-2">
+                    <input
+                      className="h-10 w-12 rounded-lg border border-white/10 bg-white/[0.04] p-1"
+                      onChange={(event) => setTemplateDraft({ ...templateDraft, accent: event.target.value })}
+                      type="color"
+                      value={templateDraft.accent}
+                    />
+                    <input
+                      className={fieldClass.replace("mt-1.5 ", "")}
+                      onChange={(event) => setTemplateDraft({ ...templateDraft, accent: event.target.value })}
+                      value={templateDraft.accent}
+                    />
+                  </div>
+                </label>
+                <label className="text-xs font-medium text-white/60 md:col-span-2">
+                  画面结构
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setTemplateDraft({ ...templateDraft, layout: event.target.value })}
+                    value={templateDraft.layout}
+                  />
+                </label>
+                <label className="text-xs font-medium text-white/60 md:col-span-2">
+                  适用场景
+                  <textarea
+                    className={`${fieldClass} min-h-20 resize-none`}
+                    onChange={(event) => setTemplateDraft({ ...templateDraft, bestFor: event.target.value })}
+                    value={templateDraft.bestFor}
+                  />
+                </label>
+              </div>
             </div>
           </section>
         </section>

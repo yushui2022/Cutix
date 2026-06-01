@@ -4,6 +4,9 @@ import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type AssetType = "video" | "image" | "audio" | "avatar";
 type Orientation = "9:16" | "16:9" | "1:1";
 type AssetStatus = "ready" | "review" | "disabled";
@@ -175,7 +178,7 @@ async function writeAssets(assets: Asset[]) {
 
 export async function GET() {
   const assets = await readAssets();
-  return Response.json({ assets });
+  return Response.json({ assets }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: NextRequest) {
