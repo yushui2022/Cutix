@@ -17,13 +17,14 @@
 9. 已完成结构化分镜脚本生成 MVP：`/api/script` 支持本地规则兜底和 OpenAI-compatible 大模型接口，前端可预览 scene、布局、数字人需求和素材标签。
 10. 已完成自动选材 MVP：`/api/selection` 会按分镜标签、布局、数字人槽位、B-roll 槽位和 BGM 对素材库打分，前端可预览匹配结果并同步选中素材。
 11. 已完成 TTS 适配 MVP：`/api/tts` 支持本地 CosyVoice FastAPI 适配（`COSYVOICE_FASTAPI_URL`）和 Windows SAPI 兜底，输出 WAV、音频 URL 和字幕时间轴。
+12. 已完成数字人片段生成 MVP：`/api/digital-human` 支持 MuseTalk CLI 适配器和本地 FFmpeg 占位片段兜底，前端可按 TTS 分镜生成并预览数字人片段。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
-2. 把 `/api/render` 从示例脚本升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态。
-3. 接入数字人适配器：先定义统一接口，再接 MuseTalk/CosyVoice 或外部数字人返回物。
-4. 把模板从硬编码 React 组件升级为可配置 Timeline JSON。
+1. 增加 FFmpeg 抠绿 + alpha 通道，把 MuseTalk 产物转成可叠加的透明数字人素材。
+2. 把 Remotion 模板合成升级为真实 Timeline：数字人 PIP、B-roll、字幕、品牌元素同屏组合。
+3. 把 `/api/render` 从示例脚本升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态。
+4. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
 5. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
 ## 1. 产品形态
@@ -334,7 +335,7 @@ worker_events   — Worker 日志
 - [x] LLM 文案生成（结构化分镜脚本 + JSON Schema 校验，MVP：本地规则兜底 + 可选大模型接口）
 - [x] 自动选材（标签规则评分，MVP：scene 槽位拆分 + 素材打分 + 前端预览）
 - [x] CosyVoice 2 TTS 集成（MVP：本地 FastAPI 适配 + Windows SAPI 兜底 + WAV/字幕时间轴）
-- [ ] MuseTalk 数字人集成（单角色）
+- [x] MuseTalk 数字人集成（单角色，MVP：统一 `/api/digital-human` 接口 + MuseTalk CLI 适配器 + FFmpeg 占位兜底）
 - [ ] FFmpeg 抠绿 + alpha 通道
 - [ ] Remotion 模板合成（数字人 PIP + B-roll + 字幕叠加）
 - [ ] FFmpeg 后处理（H.264/AAC + 封面 + 低清预览）

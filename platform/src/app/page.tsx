@@ -160,6 +160,27 @@ type TtsPreview = {
   totalDurationMs: number;
 };
 
+type DigitalHumanClip = {
+  sceneId: string;
+  role: string;
+  layout: string;
+  copy: string;
+  audioUrl: string;
+  videoUrl: string;
+  durationMs: number;
+  source: string;
+  alpha: boolean;
+  placeholder: boolean;
+};
+
+type DigitalHumanPreview = {
+  jobId: string;
+  provider: string;
+  clips: DigitalHumanClip[];
+  errors: Array<{ sceneId: string; message: string }>;
+  totalDurationMs: number;
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
@@ -315,6 +336,8 @@ export default function Home() {
   const [selectionPreview, setSelectionPreview] = useState<AssetSelectionPreview | null>(null);
   const [ttsGenerating, setTtsGenerating] = useState(false);
   const [ttsPreview, setTtsPreview] = useState<TtsPreview | null>(null);
+  const [digitalHumanGenerating, setDigitalHumanGenerating] = useState(false);
+  const [digitalHumanPreview, setDigitalHumanPreview] = useState<DigitalHumanPreview | null>(null);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
@@ -612,6 +635,7 @@ export default function Home() {
       setScriptSource(payload.source);
       setSelectionPreview(null);
       setTtsPreview(null);
+      setDigitalHumanPreview(null);
       setStatus(payload.llmError ? `脚本已生成，本地兜底：${payload.llmError}` : "结构化分镜脚本已生成");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
@@ -680,12 +704,45 @@ export default function Home() {
 
       const payload = (await res.json()) as TtsPreview;
       setTtsPreview(payload);
+      setDigitalHumanPreview(null);
       setStatus(`语音合成完成：${payload.clips.length} 段，${formatDuration(payload.totalDurationMs)}`);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("语音合成失败: " + message);
     } finally {
       setTtsGenerating(false);
+    }
+  };
+
+  const handleGenerateDigitalHuman = async () => {
+    if (!scriptPreview || !ttsPreview) {
+      setStatus("请先生成脚本和语音");
+      return;
+    }
+
+    setDigitalHumanGenerating(true);
+    setStatus("正在生成数字人片段...");
+
+    try {
+      const res = await fetch("/api/digital-human", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script: scriptPreview,
+          tts: ttsPreview,
+          provider: "auto",
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as DigitalHumanPreview;
+      setDigitalHumanPreview(payload);
+      setStatus(`数字人片段完成：${payload.clips.length} 段，${payload.provider}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("数字人生成失败: " + message);
+    } finally {
+      setDigitalHumanGenerating(false);
     }
   };
 
@@ -1638,6 +1695,65 @@ export default function Home() {
             ) : (
               <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/45">
                 暂无语音片段
+              </div>
+            )}
+          </section>
+
+          <section className={cardBase}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-wider text-white/40">Avatar</div>
+                <h2 className="mt-1 text-base font-semibold text-white">数字人片段</h2>
+                <p className="mt-0.5 text-xs text-white/50">
+                  {digitalHumanPreview
+                    ? `${digitalHumanPreview.clips.length} 段 · ${formatDuration(digitalHumanPreview.totalDurationMs)}`
+                    : "等待语音"}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-violet-300/20 bg-violet-300/10 px-2.5 py-1 text-xs font-semibold text-violet-100">
+                {digitalHumanPreview?.provider ?? "MuseTalk"}
+              </span>
+            </div>
+
+            <button
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/85 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={digitalHumanGenerating || !ttsPreview}
+              onClick={handleGenerateDigitalHuman}
+              type="button"
+            >
+              <UserRound className="h-4 w-4" />
+              {digitalHumanGenerating ? "生成中..." : "生成数字人片段"}
+            </button>
+
+            {digitalHumanPreview ? (
+              <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-1">
+                {digitalHumanPreview.clips.map((clip, index) => (
+                  <div className="rounded-xl border border-white/8 bg-black/20 p-3" key={clip.sceneId}>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-white">
+                        {index + 1}. {sceneRoleLabel[clip.role] ?? clip.role}
+                      </span>
+                      <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-white/50">
+                        {formatDuration(clip.durationMs)}
+                      </span>
+                    </div>
+                    <video className="aspect-[9/8] w-full rounded-lg bg-black" controls src={clip.videoUrl} />
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                      <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-white/45">
+                        {clip.source}
+                      </span>
+                      {clip.placeholder && (
+                        <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-amber-100">
+                          占位片段
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/45">
+                暂无数字人片段
               </div>
             )}
           </section>
