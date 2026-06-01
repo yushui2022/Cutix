@@ -12,6 +12,7 @@ import {
   MonitorCog,
   Play,
   RefreshCcw,
+  Settings,
   Sparkles,
   Tags,
   UploadCloud,
@@ -71,6 +72,21 @@ type PublicLlmConfig = {
 };
 
 type LlmConfigDraft = Omit<PublicLlmConfig, "apiKeySet" | "apiKeyPreview"> & {
+  apiKey: string;
+};
+
+type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api";
+
+type PublicDigitalHumanConfig = {
+  provider: DigitalHumanProvider;
+  endpoint: string;
+  avatarPath: string;
+  pythonPath: string;
+  apiKeySet: boolean;
+  apiKeyPreview: string;
+};
+
+type DigitalHumanConfigDraft = Omit<PublicDigitalHumanConfig, "apiKeySet" | "apiKeyPreview"> & {
   apiKey: string;
 };
 
@@ -206,6 +222,15 @@ const defaultLlmConfig: PublicLlmConfig = {
   apiKeyPreview: "",
 };
 
+const defaultDigitalHumanConfig: PublicDigitalHumanConfig = {
+  provider: "placeholder",
+  endpoint: "",
+  avatarPath: "",
+  pythonPath: "python",
+  apiKeySet: false,
+  apiKeyPreview: "",
+};
+
 const seedIps: IP[] = defaultBrands;
 const seedTemplates: Template[] = defaultTemplates;
 const alphaPreviewStyle = {
@@ -270,7 +295,7 @@ const seedAssets: Asset[] = [
 const pipeline: PipelineStep[] = [
   { name: "素材解析", detail: "转码、抽帧、读取元信息", icon: Database },
   { name: "自动标签", detail: "场景、人物、产品、镜头类型", icon: Tags },
-  { name: "文案生成", detail: "按 IP 口吻生成脚本和字幕", icon: FileText },
+  { name: "脚本编排", detail: "生成文案、分镜、布局和素材需求", icon: FileText },
   { name: "数字人接口", detail: "提交口播文本并等待回传视频", icon: UserRound },
   { name: "Remotion 合成", detail: "布局、字幕、BGM、转场", icon: Clapperboard },
   { name: "成品输出", detail: "批量渲染、预览、下载", icon: CheckCircle2 },
@@ -310,6 +335,12 @@ const scriptSourceLabel: Record<string, string> = {
   "local-fallback": "本地兜底",
 };
 
+const digitalHumanProviderLabel: Record<DigitalHumanProvider, string> = {
+  placeholder: "占位测试",
+  "musetalk-cli": "MuseTalk 本地",
+  "http-api": "HTTP 数字人 API",
+};
+
 const sceneRoleLabel: Record<string, string> = {
   hook: "开场钩子",
   pain: "痛点",
@@ -339,6 +370,12 @@ export default function Home() {
   const [templateDraft, setTemplateDraft] = useState<Template>(seedTemplates[0]);
   const [llmConfig, setLlmConfig] = useState<PublicLlmConfig>(defaultLlmConfig);
   const [llmDraft, setLlmDraft] = useState<LlmConfigDraft>({ ...defaultLlmConfig, apiKey: "" });
+  const [digitalHumanConfig, setDigitalHumanConfig] = useState<PublicDigitalHumanConfig>(defaultDigitalHumanConfig);
+  const [digitalHumanDraft, setDigitalHumanDraft] = useState<DigitalHumanConfigDraft>({
+    ...defaultDigitalHumanConfig,
+    apiKey: "",
+  });
+  const [showSystemSettings, setShowSystemSettings] = useState(false);
   const [selectedAssets, setSelectedAssets] = useState<string[]>(["store", "product", "avatar"]);
   const [assets, setAssets] = useState<Asset[]>(seedAssets);
   const [targetPlatform, setTargetPlatform] = useState(platforms[0]);
@@ -415,6 +452,31 @@ export default function Home() {
       })
       .catch(() => {
         if (!cancelled) setStatus("大模型接口配置加载失败，当前显示默认本地接口");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/digital-human-config")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load digital human config"))))
+      .then((payload: PublicDigitalHumanConfig) => {
+        if (cancelled) return;
+        setDigitalHumanConfig(payload);
+        setDigitalHumanDraft({
+          provider: payload.provider,
+          endpoint: payload.endpoint,
+          avatarPath: payload.avatarPath,
+          pythonPath: payload.pythonPath,
+          apiKey: "",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("数字人接入配置加载失败，当前显示占位测试模式");
       });
 
     return () => {
@@ -618,6 +680,40 @@ export default function Home() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("大模型接口保存失败: " + message);
+    }
+  };
+
+  const saveDigitalHumanConfig = async (clearApiKey = false) => {
+    try {
+      const payload: Record<string, unknown> = {
+        provider: digitalHumanDraft.provider,
+        endpoint: digitalHumanDraft.endpoint,
+        avatarPath: digitalHumanDraft.avatarPath,
+        pythonPath: digitalHumanDraft.pythonPath,
+      };
+      if (digitalHumanDraft.apiKey.trim()) payload.apiKey = digitalHumanDraft.apiKey.trim();
+      if (clearApiKey) payload.clearApiKey = true;
+
+      const res = await fetch("/api/digital-human-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const nextConfig = (await res.json()) as PublicDigitalHumanConfig;
+      setDigitalHumanConfig(nextConfig);
+      setDigitalHumanDraft({
+        provider: nextConfig.provider,
+        endpoint: nextConfig.endpoint,
+        avatarPath: nextConfig.avatarPath,
+        pythonPath: nextConfig.pythonPath,
+        apiKey: "",
+      });
+      setStatus(`已保存数字人接入：${digitalHumanProviderLabel[nextConfig.provider]}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("数字人接入保存失败: " + message);
     }
   };
 
@@ -850,6 +946,16 @@ export default function Home() {
     "min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left card-hover";
   const fieldClass =
     "mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none transition focus:border-[#ff3b5c]/60 focus:bg-white/[0.06]";
+  const availableAssetCount = assets.filter((asset) => asset.status !== "disabled").length;
+  const digitalHumanConnectionStatus =
+    digitalHumanConfig.provider === "http-api"
+      ? digitalHumanConfig.endpoint
+        ? "生产 API 已配置"
+        : "待填写生产 API"
+      : digitalHumanConfig.provider === "musetalk-cli"
+        ? "本地 MuseTalk"
+        : "占位测试";
+  const storyboardScenes = scriptPreview?.scenes ?? [];
 
   return (
     <main className="relative z-10 min-h-screen overflow-x-hidden text-[var(--color-ink)]">
@@ -876,6 +982,18 @@ export default function Home() {
               队列 <span className="font-semibold text-white">0</span>
             </div>
             <button
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                showSystemSettings
+                  ? "border-[#ff3b5c]/40 bg-[#ff3b5c]/10 text-white"
+                  : "border-white/10 bg-white/[0.03] text-white/80 hover:bg-white/[0.07] hover:text-white"
+              }`}
+              onClick={() => setShowSystemSettings((current) => !current)}
+              type="button"
+            >
+              <Settings className="h-4 w-4" />
+              系统设置
+            </button>
+            <button
               className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm font-medium text-white/80 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               disabled={uploading}
               onClick={openAssetUploader}
@@ -895,6 +1013,189 @@ export default function Home() {
         onChange={handleAssetUpload}
         type="file"
       />
+
+      {showSystemSettings && (
+        <section className="mx-auto max-w-7xl px-4 pt-6 sm:px-6">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <section className={cardBase}>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-white/40">System</div>
+                  <h2 className="mt-1 text-base font-semibold text-white">大模型接口</h2>
+                  <p className="mt-1 text-xs text-white/50">用于文案、分镜和画面编排，可接本地兼容接口。</p>
+                </div>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                  llmConfig.apiKeySet
+                    ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                    : "border-white/10 bg-white/5 text-white/50"
+                }`}
+                >
+                  {llmConfig.apiKeySet ? `Key ${llmConfig.apiKeyPreview}` : "本地可留空"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label className="block text-xs font-medium text-white/60">
+                  接口类型
+                  <select
+                    className={fieldClass}
+                    onChange={(event) => setLlmDraft({ ...llmDraft, provider: event.target.value as LlmProvider })}
+                    value={llmDraft.provider}
+                  >
+                    <option className="bg-[#0a0b14]" value="openai-compatible">OpenAI Compatible</option>
+                    <option className="bg-[#0a0b14]" value="ollama">Ollama</option>
+                    <option className="bg-[#0a0b14]" value="vllm">vLLM</option>
+                    <option className="bg-[#0a0b14]" value="custom">自定义</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-medium text-white/60">
+                  模型名
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setLlmDraft({ ...llmDraft, model: event.target.value })}
+                    placeholder="qwen2.5:7b"
+                    value={llmDraft.model}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-white/60 md:col-span-2">
+                  Base URL
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setLlmDraft({ ...llmDraft, baseUrl: event.target.value })}
+                    placeholder="http://127.0.0.1:11434/v1"
+                    value={llmDraft.baseUrl}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-white/60">
+                  API Key
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setLlmDraft({ ...llmDraft, apiKey: event.target.value })}
+                    placeholder={llmConfig.apiKeySet ? `已保存 ${llmConfig.apiKeyPreview}，留空保留` : "本地模型可留空"}
+                    type="password"
+                    value={llmDraft.apiKey}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-white/60">
+                  Temperature
+                  <input
+                    className={fieldClass}
+                    max={2}
+                    min={0}
+                    onChange={(event) => setLlmDraft({ ...llmDraft, temperature: Number(event.target.value) })}
+                    step={0.1}
+                    type="number"
+                    value={llmDraft.temperature}
+                  />
+                </label>
+              </div>
+              <button
+                className="btn-primary mt-4 inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                onClick={saveLlmConfig}
+                type="button"
+              >
+                保存大模型接口
+              </button>
+            </section>
+
+            <section className={cardBase}>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-white/40">Avatar</div>
+                  <h2 className="mt-1 text-base font-semibold text-white">数字人接入</h2>
+                  <p className="mt-1 text-xs text-white/50">生产环境建议接 HTTP 数字人服务，MVP 可接本地 MuseTalk。</p>
+                </div>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                  digitalHumanConfig.provider === "placeholder"
+                    ? "border-amber-300/20 bg-amber-300/10 text-amber-100"
+                    : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                }`}
+                >
+                  {digitalHumanConnectionStatus}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label className="block text-xs font-medium text-white/60">
+                  接入方式
+                  <select
+                    className={fieldClass}
+                    onChange={(event) =>
+                      setDigitalHumanDraft({
+                        ...digitalHumanDraft,
+                        provider: event.target.value as DigitalHumanProvider,
+                      })}
+                    value={digitalHumanDraft.provider}
+                  >
+                    <option className="bg-[#0a0b14]" value="http-api">HTTP 数字人 API</option>
+                    <option className="bg-[#0a0b14]" value="musetalk-cli">MuseTalk 本地 CLI</option>
+                    <option className="bg-[#0a0b14]" value="placeholder">占位测试</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-medium text-white/60">
+                  Python
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, pythonPath: event.target.value })}
+                    placeholder="python"
+                    value={digitalHumanDraft.pythonPath}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-white/60 md:col-span-2">
+                  HTTP Endpoint
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, endpoint: event.target.value })}
+                    placeholder="http://127.0.0.1:7860/generate"
+                    value={digitalHumanDraft.endpoint}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-white/60 md:col-span-2">
+                  数字人参考素材路径
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, avatarPath: event.target.value })}
+                    placeholder="C:\\avatars\\wang.mp4"
+                    value={digitalHumanDraft.avatarPath}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-white/60 md:col-span-2">
+                  API Key
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, apiKey: event.target.value })}
+                    placeholder={
+                      digitalHumanConfig.apiKeySet
+                        ? `已保存 ${digitalHumanConfig.apiKeyPreview}，留空保留`
+                        : "没有鉴权可留空"
+                    }
+                    type="password"
+                    value={digitalHumanDraft.apiKey}
+                  />
+                </label>
+              </div>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button
+                  className="btn-primary inline-flex flex-1 items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                  onClick={() => saveDigitalHumanConfig()}
+                  type="button"
+                >
+                  保存数字人接入
+                </button>
+                {digitalHumanConfig.apiKeySet && (
+                  <button
+                    className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/70 transition hover:bg-white/[0.07] hover:text-white"
+                    onClick={() => saveDigitalHumanConfig(true)}
+                    type="button"
+                  >
+                    清除 Key
+                  </button>
+                )}
+              </div>
+            </section>
+          </div>
+        </section>
+      )}
 
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-5 px-4 py-6 sm:px-6 lg:grid-cols-[300px_minmax(0,1fr)_380px]">
         <aside className="space-y-5">
@@ -965,80 +1266,54 @@ export default function Home() {
           <section className={cardBase}>
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-white">大模型接口</h2>
-                <p className="mt-1 text-xs text-white/50">兼容本地 Ollama / vLLM / OpenAI 风格接口</p>
+                <h2 className="text-sm font-semibold text-white">自动工作流</h2>
+                <p className="mt-1 text-xs text-white/50">文案、分镜、选材、数字人和成片按隐藏流程执行。</p>
               </div>
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                llmConfig.apiKeySet
-                  ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-                  : "border-white/10 bg-white/5 text-white/50"
-              }`}
-              >
-                {llmConfig.apiKeySet ? "已配置 Key" : "可留空"}
-              </span>
-            </div>
-
-            <div className="space-y-3">
-              <label className="block text-xs font-medium text-white/60">
-                接口类型
-                <select
-                  className={fieldClass}
-                  onChange={(event) => setLlmDraft({ ...llmDraft, provider: event.target.value as LlmProvider })}
-                  value={llmDraft.provider}
-                >
-                  <option className="bg-[#0a0b14]" value="openai-compatible">OpenAI Compatible</option>
-                  <option className="bg-[#0a0b14]" value="ollama">Ollama</option>
-                  <option className="bg-[#0a0b14]" value="vllm">vLLM</option>
-                  <option className="bg-[#0a0b14]" value="custom">自定义</option>
-                </select>
-              </label>
-              <label className="block text-xs font-medium text-white/60">
-                Base URL
-                <input
-                  className={fieldClass}
-                  onChange={(event) => setLlmDraft({ ...llmDraft, baseUrl: event.target.value })}
-                  placeholder="http://127.0.0.1:11434/v1"
-                  value={llmDraft.baseUrl}
-                />
-              </label>
-              <label className="block text-xs font-medium text-white/60">
-                模型名
-                <input
-                  className={fieldClass}
-                  onChange={(event) => setLlmDraft({ ...llmDraft, model: event.target.value })}
-                  placeholder="qwen2.5:7b"
-                  value={llmDraft.model}
-                />
-              </label>
-              <label className="block text-xs font-medium text-white/60">
-                API Key
-                <input
-                  className={fieldClass}
-                  onChange={(event) => setLlmDraft({ ...llmDraft, apiKey: event.target.value })}
-                  placeholder={llmConfig.apiKeySet ? `已保存 ${llmConfig.apiKeyPreview}，留空则保留` : "本地模型可留空"}
-                  type="password"
-                  value={llmDraft.apiKey}
-                />
-              </label>
-              <label className="block text-xs font-medium text-white/60">
-                Temperature
-                <input
-                  className={fieldClass}
-                  max={2}
-                  min={0}
-                  onChange={(event) => setLlmDraft({ ...llmDraft, temperature: Number(event.target.value) })}
-                  step={0.1}
-                  type="number"
-                  value={llmDraft.temperature}
-                />
-              </label>
               <button
-                className="btn-primary inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                onClick={saveLlmConfig}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/[0.07] hover:text-white"
+                onClick={() => setShowSystemSettings(true)}
                 type="button"
               >
-                保存大模型接口
+                <Settings className="h-3.5 w-3.5" />
+                设置
               </button>
+            </div>
+
+            <div className="space-y-2">
+              <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-white/55">文案与编排</span>
+                  <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2 py-0.5 text-[11px] text-cyan-100">
+                    自动
+                  </span>
+                </div>
+                <div className="mt-1 text-sm font-semibold text-white">生成结构化分镜，再决定每段画面布局</div>
+              </div>
+              <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-white/55">数字人</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                    digitalHumanConfig.provider === "placeholder"
+                      ? "border-amber-300/20 bg-amber-300/10 text-amber-100"
+                      : "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                  }`}
+                  >
+                    {digitalHumanConnectionStatus}
+                  </span>
+                </div>
+                <div className="mt-1 text-sm font-semibold text-white">
+                  {digitalHumanProviderLabel[digitalHumanConfig.provider]}
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-white/55">素材库</span>
+                  <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-[11px] text-emerald-100">
+                    {availableAssetCount} 个可用
+                  </span>
+                </div>
+                <div className="mt-1 text-sm font-semibold text-white">已入库素材会自动按分镜标签匹配</div>
+              </div>
             </div>
           </section>
 
@@ -1339,7 +1614,7 @@ export default function Home() {
               <div>
                 <div className="text-xs uppercase tracking-wider text-white/40">Template</div>
                 <h2 className="mt-1 text-xl font-semibold text-white">模板</h2>
-                <p className="mt-1 text-sm text-white/50">模板决定数字人、素材、字幕和 BGM 的画面结构。</p>
+                <p className="mt-1 text-sm text-white/50">模板提供风格约束，实际画面结构由分镜编排决定。</p>
               </div>
               <span className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/70">
                 时长 {selectedTemplate.duration}
@@ -1449,8 +1724,10 @@ export default function Home() {
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs uppercase tracking-wider text-white/40">Preview</div>
-                <h2 className="mt-1 text-base font-semibold text-white">视频预览</h2>
-                <p className="mt-0.5 text-xs text-white/50">{selectedTemplate.layout}</p>
+                <h2 className="mt-1 text-base font-semibold text-white">分镜编排预览</h2>
+                <p className="mt-0.5 text-xs text-white/50">
+                  {storyboardScenes.length > 0 ? `${storyboardScenes.length} 个分镜` : selectedTemplate.name}
+                </p>
               </div>
               <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
                 9:16
@@ -1458,36 +1735,87 @@ export default function Home() {
             </div>
 
             <div className="relative mx-auto aspect-[9/16] w-full max-w-[290px] overflow-hidden rounded-2xl border border-white/10 bg-black text-white shadow-2xl shadow-black/60">
-              <div
-                className="flex h-[58%] items-center justify-center px-6 text-center"
-                style={{
-                  background: `linear-gradient(180deg, ${selectedIP.color}, #0a0b14)`,
-                }}
-              >
-                <div>
-                  <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-sm">
-                    <UserRound className="h-10 w-10 text-white/90" />
+              {storyboardScenes.length > 0 ? (
+                <div className="flex h-full flex-col">
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {storyboardScenes.slice(0, 5).map((scene, index) => {
+                      const sceneAssets = selectedAssetList.length ? selectedAssetList : assets;
+                      const asset = sceneAssets[index % sceneAssets.length];
+                      const isFullDigitalHuman = scene.layout === "full_dh";
+                      const isFullBroll = scene.layout === "full_broll";
+                      const humanFirst = scene.layout !== "broll_top_dh_bottom";
+                      const avatarBlock = (
+                        <div
+                          className="flex h-full items-center justify-center px-3 text-center"
+                          style={{
+                            background: `linear-gradient(180deg, ${selectedIP.color}, #111827)`,
+                          }}
+                        >
+                          <div>
+                            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full border border-white/25 bg-white/10">
+                              <UserRound className="h-6 w-6 text-white/90" />
+                            </div>
+                            <div className="text-[11px] font-semibold">{selectedIP.name}</div>
+                          </div>
+                        </div>
+                      );
+                      const brollBlock = (
+                        <div
+                          className="flex h-full items-center justify-center px-3 text-center text-[11px] font-semibold"
+                          style={{
+                            background: `linear-gradient(135deg, ${asset?.color ?? selectedIP.color}, #0f172a)`,
+                          }}
+                        >
+                          {asset?.name ?? "素材位"}
+                        </div>
+                      );
+
+                      return (
+                        <div
+                          className="relative min-h-[76px] overflow-hidden border-b border-white/10"
+                          key={`${scene.id}-${index}`}
+                          style={{ flex: Math.max(1, scene.durationSec) }}
+                        >
+                          <div className="absolute left-2 top-2 z-10 rounded-full bg-black/45 px-2 py-0.5 text-[10px] text-white/70 backdrop-blur">
+                            {index + 1}. {sceneLayoutLabel[scene.layout] ?? scene.layout}
+                          </div>
+                          {isFullDigitalHuman ? (
+                            avatarBlock
+                          ) : isFullBroll ? (
+                            brollBlock
+                          ) : (
+                            <div className="grid h-full grid-rows-2 gap-px bg-white/10">
+                              {humanFirst ? avatarBlock : brollBlock}
+                              {humanFirst ? brollBlock : avatarBlock}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div className="text-sm font-semibold">{selectedIP.name} 数字人</div>
-                  <div className="mt-2 text-xs text-white/70">{selectedIP.tone}</div>
+                  <div className="flex h-14 items-center justify-center bg-black/90 px-4 text-center text-xs font-medium leading-5">
+                    {scriptPreview?.cta ?? selectedTemplate.name}
+                  </div>
                 </div>
-              </div>
-              <div className="grid h-[30%] grid-cols-2 gap-px bg-white/10">
-                {(selectedAssetList.length ? selectedAssetList.slice(0, 2) : assets.slice(0, 2)).map((asset) => (
+              ) : (
+                <div className="flex h-full flex-col">
                   <div
-                    className="flex items-center justify-center px-3 text-center text-xs font-medium"
-                    key={asset.id}
-                    style={{
-                      background: `linear-gradient(135deg, ${asset.color}, ${asset.color}88)`,
-                    }}
+                    className="flex flex-1 items-center justify-center px-6 text-center"
+                    style={{ background: `linear-gradient(180deg, ${selectedIP.color}, #0a0b14)` }}
                   >
-                    {asset.name}
+                    <div>
+                      <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-full border border-white/30 bg-white/10 backdrop-blur-sm">
+                        <WandSparkles className="h-10 w-10 text-white/90" />
+                      </div>
+                      <div className="text-sm font-semibold">等待分镜编排</div>
+                      <div className="mt-2 text-xs text-white/70">{selectedTemplate.layout}</div>
+                    </div>
                   </div>
-                ))}
-              </div>
-              <div className="flex h-[12%] items-center justify-center bg-black/90 px-4 text-center text-xs font-medium leading-5">
-                普通门店如何复制增长模型？
-              </div>
+                  <div className="flex h-14 items-center justify-center bg-black/90 px-4 text-center text-xs font-medium leading-5">
+                    {selectedIP.name} · {targetPlatform}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
@@ -1752,7 +2080,7 @@ export default function Home() {
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-violet-300/20 bg-violet-300/10 px-2.5 py-1 text-xs font-semibold text-violet-100">
-                {digitalHumanPreview?.provider ?? "MuseTalk"}
+                {digitalHumanPreview?.provider ?? digitalHumanProviderLabel[digitalHumanConfig.provider]}
               </span>
             </div>
 
@@ -1765,6 +2093,12 @@ export default function Home() {
               <UserRound className="h-4 w-4" />
               {digitalHumanGenerating ? "生成中..." : "生成数字人片段"}
             </button>
+
+            {digitalHumanConfig.provider === "placeholder" && (
+              <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+                当前未接生产数字人服务，系统只会生成占位片段；在系统设置中接入 HTTP API 或 MuseTalk 后才是可交付链路。
+              </div>
+            )}
 
             {digitalHumanPreview ? (
               <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-1">
