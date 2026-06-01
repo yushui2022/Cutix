@@ -26,11 +26,23 @@ type ScriptScene = {
   needsDigitalHuman?: boolean;
 };
 
+type VideoPlanScene = {
+  id: string;
+  visualGoal?: string;
+  transition?: "cut" | "fade" | "slide" | "zoom" | string;
+  digitalHuman?: {
+    text?: string;
+  };
+};
+
 type GeneratedScript = {
   title?: string;
   platform?: string;
   scenes: ScriptScene[];
   cta?: string;
+  videoPlan?: {
+    scenes?: VideoPlanScene[];
+  };
 };
 
 type SelectionAsset = {
@@ -98,6 +110,7 @@ type TimelineScene = {
   audioUrl?: string;
   subtitleWords: TtsWord[];
   overlayText?: string;
+  transition?: string;
 };
 
 type RenderProps = {
@@ -236,9 +249,11 @@ function buildTimeline(data: RenderRequest): RenderProps {
   const selectionsByScene = new Map((data.selection?.selections ?? []).map((scene) => [scene.sceneId, scene]));
   const ttsByScene = new Map((data.tts?.clips ?? []).map((clip) => [clip.sceneId, clip]));
   const digitalHumanByScene = new Map((data.digitalHuman?.clips ?? []).map((clip) => [clip.sceneId, clip]));
+  const planScenesById = new Map((data.script.videoPlan?.scenes ?? []).map((scene) => [scene.id, scene]));
   let cursorSec = 0;
 
   const scenes = data.script.scenes.map((scene): TimelineScene => {
+    const planScene = planScenesById.get(scene.id);
     const tts = ttsByScene.get(scene.id);
     const digitalHuman = digitalHumanByScene.get(scene.id);
     const plannedMs = Math.max(1000, Math.round((scene.durationSec || 4) * 1000));
@@ -255,7 +270,8 @@ function buildTimeline(data: RenderRequest): RenderProps {
       digitalHumanVideo: digitalHuman?.alphaVideoUrl || digitalHuman?.videoUrl,
       audioUrl: tts?.audioUrl,
       subtitleWords: tts?.words?.length ? tts.words : subtitleWords(scene.copy, durationMs),
-      overlayText: layout === "full_broll" ? scene.copy : undefined,
+      overlayText: layout === "full_broll" ? planScene?.visualGoal || scene.copy : undefined,
+      transition: planScene?.transition,
       ...broll,
     };
 

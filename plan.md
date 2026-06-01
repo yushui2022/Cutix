@@ -24,10 +24,11 @@
 16. 已完成数字人生产接入配置 MVP：`/api/digital-human-config` 支持 HTTP 数字人 API、MuseTalk CLI 和占位测试三种模式，API Key 本地保存但前端只返回脱敏状态。
 17. 已完成控制台技术项收纳 MVP：大模型接口和数字人接入已经移入「系统设置」，主界面保留用户生产流程和状态。
 18. 已完成分镜编排预览 MVP：右侧预览不再固定为“上人下素材”，会按脚本里的 scene layout 展示全屏数字人、全屏素材、上人下素材、上素材下人等分段结构。
+19. 已完成 `videoPlan` 编排契约 MVP：`/api/script` 在兼容旧 `scenes` 的同时输出 `videoPlan`，包含全局节奏、BGM 情绪、每段画面目标、数字人位置、素材槽位、字幕策略和转场；`/api/selection` 和 `/api/render` 已开始消费该编排计划。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 把“脚本生成”升级成“文案 + 编排计划”统一工作流：输出稳定的 `video_plan`，明确每段布局、镜头用途、素材标签、数字人口播文本、字幕和转场。
+1. 把 `videoPlan` 从 MVP 投影升级为严格 JSON Schema：保存版本、兼容迁移、失败重试时可复用同一编排计划。
 2. 把 `/api/render` 从同步渲染升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态。
 3. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
 4. 增加 IP/品牌、标签体系、模板包的后台管理页面。
@@ -336,6 +337,7 @@ worker_events   — Worker 日志
 - [x] 素材上传 + 缩略图自动生成 + 人工标签（MVP：本地文件 + 本地 JSON）
 - [x] IP/品牌配置 + 模板管理（3 个模板，MVP：本地 JSON 配置）
 - [x] LLM 文案生成（结构化分镜脚本 + JSON Schema 校验，MVP：本地规则兜底 + 可选大模型接口）
+- [x] `videoPlan` 编排契约（MVP：文案、分镜、布局、素材需求、数字人口播、字幕、转场统一输出）
 - [x] 控制台技术设置收纳（MVP：大模型接口、数字人接入隐藏到系统设置）
 - [x] 自动选材（标签规则评分，MVP：scene 槽位拆分 + 素材打分 + 前端预览）
 - [x] CosyVoice 2 TTS 集成（MVP：本地 FastAPI 适配 + Windows SAPI 兜底 + WAV/字幕时间轴）
@@ -361,7 +363,8 @@ worker_events   — Worker 日志
 - [ ] Scene detection 自动镜头切分 + smartcut 裁切
 - [ ] CLIP 视觉标签自动建议
 - [ ] LLM 脚本 A/B 变体
-- [ ] LLM 输出统一 `video_plan`（文案、分镜、布局、素材需求、数字人口播、字幕、转场）
+- [x] LLM 输出统一 `videoPlan` MVP（文案、分镜、布局、素材需求、数字人口播、字幕、转场）
+- [ ] `videoPlan` JSON Schema 版本化 + 任务失败复用
 - [ ] 统计报表（生成量/成功率/素材复用率）
 
 ---

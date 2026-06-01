@@ -100,11 +100,55 @@ type ScriptScene = {
   needsDigitalHuman: boolean;
 };
 
+type VideoPlanMaterialSlot = {
+  slot: string;
+  label: string;
+  requiredTypes: Array<Asset["type"]>;
+  tags: string[];
+  purpose: string;
+  placement: string;
+};
+
+type VideoPlanScene = {
+  id: string;
+  role: string;
+  layout: string;
+  durationSec: number;
+  narration: string;
+  visualGoal: string;
+  digitalHuman: {
+    enabled: boolean;
+    text: string;
+    placement: string;
+  };
+  materialSlots: VideoPlanMaterialSlot[];
+  subtitle: {
+    style: string;
+    emphasis: string[];
+  };
+  transition: string;
+};
+
+type VideoPlan = {
+  version: number;
+  aspectRatio: string;
+  platform: string;
+  totalDurationSec: number;
+  global: {
+    pacing: string;
+    bgmMood: string;
+    subtitleStyle: string;
+    brandElements: string[];
+  };
+  scenes: VideoPlanScene[];
+};
+
 type GeneratedScript = {
   title: string;
   platform: string;
   scenes: ScriptScene[];
   cta: string;
+  videoPlan?: VideoPlan;
 };
 
 type SelectionAsset = Pick<
@@ -506,6 +550,11 @@ export default function Home() {
   const selectedAssetList = useMemo(
     () => assets.filter((asset) => selectedAssets.includes(asset.id)),
     [assets, selectedAssets],
+  );
+
+  const videoPlanScenesById = useMemo(
+    () => new Map((scriptPreview?.videoPlan?.scenes ?? []).map((scene) => [scene.id, scene])),
+    [scriptPreview],
   );
 
   const activeStepIndex = useMemo(() => {
@@ -955,7 +1004,7 @@ export default function Home() {
       : digitalHumanConfig.provider === "musetalk-cli"
         ? "本地 MuseTalk"
         : "占位测试";
-  const storyboardScenes = scriptPreview?.scenes ?? [];
+  const storyboardScenes = scriptPreview?.videoPlan?.scenes ?? scriptPreview?.scenes ?? [];
 
   return (
     <main className="relative z-10 min-h-screen overflow-x-hidden text-[var(--color-ink)]">
@@ -1855,37 +1904,63 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-2">
-                  {scriptPreview.scenes.map((scene, index) => (
-                    <div className="rounded-xl border border-white/8 bg-black/20 p-3" key={`${scene.id}-${index}`}>
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-white">
-                          {index + 1}. {sceneRoleLabel[scene.role] ?? scene.role}
-                        </span>
-                        <span className="shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[11px] font-medium text-white/50">
-                          {scene.durationSec}s
-                        </span>
-                      </div>
-                      <p className="text-xs leading-5 text-white/75">{scene.copy}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/55">
-                          {sceneLayoutLabel[scene.layout] ?? scene.layout}
-                        </span>
-                        {scene.needsDigitalHuman && (
-                          <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2 py-0.5 text-[11px] text-fuchsia-200">
-                            数字人
+                  {scriptPreview.scenes.map((scene, index) => {
+                    const planScene = videoPlanScenesById.get(scene.id);
+                    const slotTags = (planScene?.materialSlots ?? []).flatMap((slot) => slot.tags).slice(0, 5);
+                    return (
+                      <div className="rounded-xl border border-white/8 bg-black/20 p-3" key={`${scene.id}-${index}`}>
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-white">
+                            {index + 1}. {sceneRoleLabel[scene.role] ?? scene.role}
                           </span>
+                          <span className="shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[11px] font-medium text-white/50">
+                            {scene.durationSec}s
+                          </span>
+                        </div>
+                        <p className="text-xs leading-5 text-white/75">{scene.copy}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/55">
+                            {sceneLayoutLabel[scene.layout] ?? scene.layout}
+                          </span>
+                          {scene.needsDigitalHuman && (
+                            <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2 py-0.5 text-[11px] text-fuchsia-200">
+                              数字人
+                            </span>
+                          )}
+                          {scene.visualTags.slice(0, 4).map((tag) => (
+                            <span
+                              className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-2 py-0.5 text-[11px] text-cyan-100"
+                              key={tag}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                        {planScene && (
+                          <div className="mt-3 rounded-lg border border-white/8 bg-white/[0.025] p-2.5">
+                            <div className="text-[11px] font-semibold text-white/50">编排计划</div>
+                            <div className="mt-1 text-xs leading-5 text-white/70">{planScene.visualGoal}</div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/50">
+                                转场 {planScene.transition}
+                              </span>
+                              <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/50">
+                                数字人 {planScene.digitalHuman.placement}
+                              </span>
+                              {slotTags.map((tag) => (
+                                <span
+                                  className="rounded-full border border-emerald-300/15 bg-emerald-300/10 px-2 py-0.5 text-[11px] text-emerald-100"
+                                  key={`${scene.id}-${tag}`}
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
                         )}
-                        {scene.visualTags.slice(0, 4).map((tag) => (
-                          <span
-                            className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-2 py-0.5 text-[11px] text-cyan-100"
-                            key={tag}
-                          >
-                            {tag}
-                          </span>
-                        ))}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : (

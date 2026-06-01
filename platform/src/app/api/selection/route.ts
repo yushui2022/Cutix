@@ -35,11 +35,29 @@ type ScriptScene = {
   needsDigitalHuman: boolean;
 };
 
+type VideoPlanMaterialSlot = {
+  slot?: string;
+  label?: string;
+  requiredTypes?: AssetType[];
+  tags?: string[];
+};
+
+type VideoPlanScene = {
+  id: string;
+  digitalHuman?: {
+    enabled?: boolean;
+  };
+  materialSlots?: VideoPlanMaterialSlot[];
+};
+
 type GeneratedScript = {
   title: string;
   platform: string;
   scenes: ScriptScene[];
   cta: string;
+  videoPlan?: {
+    scenes?: VideoPlanScene[];
+  };
 };
 
 type SelectionRequest = {
@@ -110,9 +128,13 @@ function getMatchedTags(assetTags: string[], requiredTags: string[]) {
   return uniqueTags(matches);
 }
 
-function requiredTagsForScene(scene: ScriptScene, slot: SlotType) {
+function requiredTagsForScene(scene: ScriptScene, slot: SlotType, planScene: VideoPlanScene | undefined) {
+  const planTags = slot === "broll"
+    ? (planScene?.materialSlots ?? []).flatMap((materialSlot) => materialSlot.tags ?? [])
+    : [];
   const tags = uniqueTags([
     ...scene.visualTags,
+    ...planTags,
     ...(roleTagHints[scene.role] ?? []),
   ]);
 
@@ -123,15 +145,36 @@ function requiredTagsForScene(scene: ScriptScene, slot: SlotType) {
   return tags.filter((tag) => !["数字人", "口播", "IP", "CTA", "结尾"].includes(tag));
 }
 
-function slotsForScene(scene: ScriptScene): Array<{ slot: SlotType; label: string; requiredTypes: AssetType[] }> {
+function validRequiredTypes(types: AssetType[] | undefined): AssetType[] {
+  const filtered = (types ?? []).filter((type) => type === "video" || type === "image");
+  return filtered.length ? filtered : ["video", "image"];
+}
+
+function slotsForScene(
+  scene: ScriptScene,
+  planScene: VideoPlanScene | undefined,
+): Array<{ slot: SlotType; label: string; requiredTypes: AssetType[] }> {
   const slots: Array<{ slot: SlotType; label: string; requiredTypes: AssetType[] }> = [];
   const layout = scene.layout;
+  const materialSlots = planScene?.materialSlots ?? [];
+  const needsDigitalHuman = planScene?.digitalHuman?.enabled === true
+    || scene.needsDigitalHuman
+    || layoutDigitalHumanLayouts.has(layout);
 
-  if (scene.needsDigitalHuman || layoutDigitalHumanLayouts.has(layout)) {
+  if (needsDigitalHuman) {
     slots.push({ slot: "digital_human", label: "数字人", requiredTypes: ["avatar", "video"] });
   }
 
-  if (layoutBrollLayouts.has(layout)) {
+  if (materialSlots.length > 0) {
+    const requiredTypes: AssetType[] = Array.from(
+      new Set(materialSlots.flatMap((slot) => validRequiredTypes(slot.requiredTypes))),
+    );
+    slots.push({
+      slot: "broll",
+      label: materialSlots[0]?.label || "B-roll",
+      requiredTypes,
+    });
+  } else if (layoutBrollLayouts.has(layout)) {
     slots.push({ slot: "broll", label: "B-roll", requiredTypes: ["video", "image"] });
   }
 
@@ -264,14 +307,16 @@ export async function POST(request: NextRequest) {
 
   const assets = Array.isArray(data.assets) ? data.assets : [];
   const usedBrollIds = new Set<string>();
+  const planScenesById = new Map((data.script.videoPlan?.scenes ?? []).map((scene) => [scene.id, scene]));
   const selections = data.script.scenes.map((scene) => {
-    const slots = slotsForScene(scene).map((slot) =>
+    const planScene = planScenesById.get(scene.id);
+    const slots = slotsForScene(scene, planScene).map((slot) =>
       pickSlot(
         assets,
         slot.slot,
         slot.label,
         slot.requiredTypes,
-        requiredTagsForScene(scene, slot.slot),
+        requiredTagsForScene(scene, slot.slot, planScene),
         data.targetPlatform ?? data.script?.platform,
         usedBrollIds,
       ),

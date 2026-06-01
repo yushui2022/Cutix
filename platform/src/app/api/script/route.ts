@@ -25,6 +25,49 @@ type ScriptScene = {
   needsDigitalHuman: boolean;
 };
 
+type VideoPlanMaterialSlot = {
+  slot: "broll" | "product" | "proof" | "background";
+  label: string;
+  requiredTypes: Array<"video" | "image">;
+  tags: string[];
+  purpose: string;
+  placement: "primary" | "support" | "background";
+};
+
+type VideoPlanScene = {
+  id: string;
+  role: ScriptScene["role"];
+  layout: ScriptScene["layout"];
+  durationSec: number;
+  narration: string;
+  visualGoal: string;
+  digitalHuman: {
+    enabled: boolean;
+    text: string;
+    placement: "full" | "top" | "bottom" | "voiceover";
+  };
+  materialSlots: VideoPlanMaterialSlot[];
+  subtitle: {
+    style: "bottom_bar" | "center_emphasis" | "minimal";
+    emphasis: string[];
+  };
+  transition: "cut" | "fade" | "slide" | "zoom";
+};
+
+type VideoPlan = {
+  version: 1;
+  aspectRatio: "9:16";
+  platform: string;
+  totalDurationSec: number;
+  global: {
+    pacing: "steady" | "fast" | "dramatic";
+    bgmMood: string;
+    subtitleStyle: "bottom_bar";
+    brandElements: string[];
+  };
+  scenes: VideoPlanScene[];
+};
+
 type GeneratedScript = {
   title: string;
   platform: string;
@@ -33,6 +76,7 @@ type GeneratedScript = {
   tone: string;
   scenes: ScriptScene[];
   cta: string;
+  videoPlan: VideoPlan;
 };
 
 type ScriptRequest = {
@@ -91,13 +135,76 @@ function uniqueTags(tags: string[]) {
   return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean))).slice(0, 8);
 }
 
+function digitalHumanPlacement(layout: ScriptScene["layout"]): VideoPlanScene["digitalHuman"]["placement"] {
+  if (layout === "full_dh") return "full";
+  if (layout === "dh_top_broll_bottom") return "top";
+  if (layout === "broll_top_dh_bottom") return "bottom";
+  return "voiceover";
+}
+
+function materialSlotsForScene(scene: ScriptScene): VideoPlanMaterialSlot[] {
+  if (scene.layout === "full_dh") return [];
+
+  return [
+    {
+      slot: scene.role === "proof" ? "proof" : scene.role === "solution" ? "product" : "broll",
+      label: scene.role === "proof" ? "证明素材" : scene.role === "solution" ? "产品/方案素材" : "场景 B-roll",
+      requiredTypes: ["video", "image"],
+      tags: uniqueTags(scene.visualTags.filter((tag) => !["数字人", "口播", "IP", "CTA", "结尾"].includes(tag))),
+      purpose: scene.role === "proof" ? "用真实案例或数据强化可信度" : "承接口播内容，提供画面证据",
+      placement: scene.layout === "full_broll" ? "primary" : "support",
+    },
+  ];
+}
+
+function buildVideoPlan(script: Omit<GeneratedScript, "videoPlan">, input: Required<ScriptRequest>): VideoPlan {
+  return {
+    version: 1,
+    aspectRatio: "9:16",
+    platform: script.platform,
+    totalDurationSec: script.scenes.reduce((sum, scene) => sum + scene.durationSec, 0),
+    global: {
+      pacing: input.targetPlatform === "小红书" ? "steady" : "fast",
+      bgmMood: input.brand.tone.includes("理性") ? "克制可信" : "商业节奏",
+      subtitleStyle: "bottom_bar",
+      brandElements: [input.brand.name, input.brand.industry, input.brand.promise],
+    },
+    scenes: script.scenes.map((scene, index) => ({
+      id: scene.id,
+      role: scene.role,
+      layout: scene.layout,
+      durationSec: scene.durationSec,
+      narration: scene.copy,
+      visualGoal: `${scene.role} 段落用 ${scene.visualTags.join("、") || "品牌"} 素材支撑口播`,
+      digitalHuman: {
+        enabled: scene.needsDigitalHuman,
+        text: scene.needsDigitalHuman ? scene.copy : "",
+        placement: digitalHumanPlacement(scene.layout),
+      },
+      materialSlots: materialSlotsForScene(scene),
+      subtitle: {
+        style: scene.role === "proof" ? "center_emphasis" : "bottom_bar",
+        emphasis: uniqueTags(scene.visualTags.slice(0, 3)),
+      },
+      transition: index === 0 ? "cut" : scene.role === "proof" ? "zoom" : "fade",
+    })),
+  };
+}
+
+function attachVideoPlan(script: Omit<GeneratedScript, "videoPlan">, input: Required<ScriptRequest>): GeneratedScript {
+  return {
+    ...script,
+    videoPlan: buildVideoPlan(script, input),
+  };
+}
+
 function localScript(input: Required<ScriptRequest>): GeneratedScript {
   const brand = input.brand;
   const template = input.template;
   const tags = uniqueTags(input.assetTags);
   const primaryTags = tags.length ? tags.join("、") : "门店、产品、案例";
 
-  return {
+  return attachVideoPlan({
     title: `${brand.name}${input.targetPlatform}短视频脚本`,
     platform: input.targetPlatform,
     brandId: brand.id,
@@ -151,7 +258,7 @@ function localScript(input: Required<ScriptRequest>): GeneratedScript {
       },
     ],
     cta: "私信关键词“方案”",
-  };
+  }, input);
 }
 
 function normalizeRequest(body: unknown): Required<ScriptRequest> {
@@ -177,20 +284,68 @@ function normalizeRequest(body: unknown): Required<ScriptRequest> {
   };
 }
 
-function validateScript(value: unknown): GeneratedScript | null {
-  if (typeof value !== "object" || value === null) return null;
-  const script = value as GeneratedScript;
-  if (typeof script.title !== "string") return null;
-  if (typeof script.platform !== "string") return null;
-  if (!Array.isArray(script.scenes) || script.scenes.length < 3) return null;
-  for (const scene of script.scenes) {
-    if (typeof scene !== "object" || scene === null) return null;
-    if (typeof scene.id !== "string" || typeof scene.copy !== "string") return null;
-    if (typeof scene.durationSec !== "number" || scene.durationSec <= 0) return null;
-    if (!Array.isArray(scene.visualTags)) return null;
-    if (typeof scene.needsDigitalHuman !== "boolean") return null;
+function normalizeSceneLayout(value: unknown): ScriptScene["layout"] | null {
+  if (
+    value === "full_dh"
+    || value === "dh_top_broll_bottom"
+    || value === "broll_top_dh_bottom"
+    || value === "full_broll"
+  ) {
+    return value;
   }
-  return script;
+  return null;
+}
+
+function normalizeSceneRole(value: unknown): ScriptScene["role"] | null {
+  if (value === "hook" || value === "pain" || value === "solution" || value === "proof" || value === "cta") {
+    return value;
+  }
+  return null;
+}
+
+function validateScript(value: unknown, input: Required<ScriptRequest>): GeneratedScript | null {
+  if (typeof value !== "object" || value === null) return null;
+  const rawScript = value as Record<string, unknown>;
+  const rawScenes = rawScript.scenes;
+  const title = rawScript.title;
+  const platform = rawScript.platform;
+  if (typeof title !== "string") return null;
+  if (typeof platform !== "string") return null;
+  if (!Array.isArray(rawScenes) || rawScenes.length < 3) return null;
+
+  const scenes: ScriptScene[] = [];
+  for (const scene of rawScenes) {
+    if (typeof scene !== "object" || scene === null) return null;
+    const rawScene = scene as Record<string, unknown>;
+    const role = normalizeSceneRole(rawScene.role);
+    const layout = normalizeSceneLayout(rawScene.layout);
+    if (!role || !layout) return null;
+    if (typeof rawScene.id !== "string" || typeof rawScene.copy !== "string") return null;
+    if (typeof rawScene.durationSec !== "number" || rawScene.durationSec <= 0) return null;
+    if (!Array.isArray(rawScene.visualTags)) return null;
+    if (typeof rawScene.needsDigitalHuman !== "boolean") return null;
+    scenes.push({
+      id: rawScene.id,
+      role,
+      layout,
+      durationSec: Math.max(3, Math.min(15, Math.round(rawScene.durationSec))),
+      copy: rawScene.copy,
+      visualTags: uniqueTags(rawScene.visualTags.map(String)),
+      needsDigitalHuman: rawScene.needsDigitalHuman,
+    });
+  }
+
+  const normalized = {
+    title,
+    platform,
+    brandId: typeof rawScript.brandId === "string" ? rawScript.brandId : input.brand.id,
+    templateId: typeof rawScript.templateId === "string" ? rawScript.templateId : input.template.id,
+    tone: typeof rawScript.tone === "string" ? rawScript.tone : input.brand.tone,
+    scenes,
+    cta: typeof rawScript.cta === "string" ? rawScript.cta : "私信了解方案",
+  };
+
+  return attachVideoPlan(normalized, input);
 }
 
 async function callLlm(input: Required<ScriptRequest>) {
@@ -203,6 +358,8 @@ async function callLlm(input: Required<ScriptRequest>) {
     "scenes 每项必须包含 id, role, layout, durationSec, copy, visualTags, needsDigitalHuman。",
     "role 只能是 hook/pain/solution/proof/cta。",
     "layout 只能是 full_dh/dh_top_broll_bottom/broll_top_dh_bottom/full_broll。",
+    "你要把文案和画面编排一起考虑：每个 scene 的 layout 必须按内容节奏变化，不要固定单一上下布局。",
+    "需要数字人讲话的段落把 needsDigitalHuman 设为 true；纯素材证明段可设为 false。",
     `品牌：${JSON.stringify(input.brand)}`,
     `模板：${JSON.stringify(input.template)}`,
     `平台：${input.targetPlatform}`,
@@ -234,7 +391,7 @@ async function callLlm(input: Required<ScriptRequest>) {
   if (!content) throw new Error("LLM response has no message content");
 
   const parsed: unknown = JSON.parse(content);
-  const script = validateScript(parsed);
+  const script = validateScript(parsed, input);
   if (!script) throw new Error("LLM script JSON failed validation");
   return script;
 }
