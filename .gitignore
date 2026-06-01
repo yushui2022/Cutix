@@ -28,6 +28,8 @@ venv/
 # 渲染产物 / 临时文件
 platform/public/output/
 platform/public/samples/
+platform/public/uploads/
+platform/data/
 platform/out/
 *.mp4
 *.mov
