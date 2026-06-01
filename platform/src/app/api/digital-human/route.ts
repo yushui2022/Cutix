@@ -25,6 +25,18 @@ type TtsClip = {
   durationMs: number;
 };
 
+type ChromaKeyOptions = {
+  color?: string;
+  similarity?: number;
+  blend?: number;
+};
+
+type NormalizedChromaKeyOptions = {
+  color: string;
+  similarity: number;
+  blend: number;
+};
+
 type DigitalHumanRequest = {
   script?: {
     scenes: ScriptScene[];
@@ -34,6 +46,8 @@ type DigitalHumanRequest = {
   };
   clips?: TtsClip[];
   provider?: "auto" | "musetalk-cli" | "placeholder";
+  alpha?: boolean;
+  chromaKey?: ChromaKeyOptions;
 };
 
 type DigitalHumanClip = {
@@ -43,9 +57,13 @@ type DigitalHumanClip = {
   copy: string;
   audioUrl: string;
   videoUrl: string;
+  sourceVideoUrl: string;
+  alphaVideoUrl?: string;
   durationMs: number;
   source: "musetalk-cli" | "ffmpeg-placeholder";
   alpha: boolean;
+  alphaMode: "none" | "chromakey-vp9";
+  alphaError?: string;
   placeholder: boolean;
 };
 
@@ -53,6 +71,11 @@ const outputDir = path.join(process.cwd(), "public", "output", "digital-human");
 const dataDir = path.join(process.cwd(), "data", "digital-human");
 
 const digitalHumanLayouts = new Set(["full_dh", "dh_top_broll_bottom", "broll_top_dh_bottom"]);
+const defaultChromaKey: NormalizedChromaKeyOptions = {
+  color: "0x00FF00",
+  similarity: 0.18,
+  blend: 0.08,
+};
 
 function sanitizeId(value: string) {
   return value.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "scene";
@@ -68,7 +91,56 @@ function getBundledFfmpegPath() {
   return path.join(process.cwd(), "node_modules", "@remotion", "compositor-win32-x64-msvc", exe);
 }
 
+function getStaticFfmpegPath() {
+  const exe = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+  return path.join(process.cwd(), "node_modules", "ffmpeg-static", exe);
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unknown error";
+}
+
+function clampNumber(value: number | undefined, fallback: number, min: number, max: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeChromaColor(value: string | undefined) {
+  const raw = value?.trim();
+  if (!raw) return defaultChromaKey.color;
+
+  const hex = raw.replace(/^#/, "").replace(/^0x/i, "");
+  if (/^[0-9a-f]{6}$/i.test(hex)) return `0x${hex.toUpperCase()}`;
+  return defaultChromaKey.color;
+}
+
+function normalizeChromaKey(input: ChromaKeyOptions | undefined): NormalizedChromaKeyOptions {
+  return {
+    color: normalizeChromaColor(input?.color),
+    similarity: clampNumber(input?.similarity, defaultChromaKey.similarity, 0.01, 1),
+    blend: clampNumber(input?.blend, defaultChromaKey.blend, 0, 1),
+  };
+}
+
 async function getFfmpegCommand() {
+  const configured = process.env.FFMPEG_PATH;
+  if (configured) {
+    try {
+      await fs.access(configured);
+      return configured;
+    } catch {
+      // Fall through to local project binaries.
+    }
+  }
+
+  const staticBinary = getStaticFfmpegPath();
+  try {
+    await fs.access(staticBinary);
+    return staticBinary;
+  } catch {
+    // Fall through to Remotion's bundled ffmpeg.
+  }
+
   const bundled = getBundledFfmpegPath();
   try {
     await fs.access(bundled);
@@ -144,11 +216,9 @@ function createPlaceholderPng() {
       const inTorso = x > 175 && x < 365 && y > 245 && y < 450;
       const inEye = (Math.abs(x - 238) < 16 || Math.abs(x - 302) < 16) && Math.abs(y - 135) < 8;
       const inMouth = x > 236 && x < 304 && y > 185 && y < 196;
-      const glow = Math.max(0, 1 - Math.sqrt(dx * dx + (y - 220) * (y - 220)) / 340);
-
-      let red = 16 + Math.round(glow * 28);
-      let green = 24 + Math.round(glow * 34);
-      let blue = 39 + Math.round(glow * 52);
+      let red = 0;
+      let green = 255;
+      let blue = 0;
 
       if (inTorso) {
         red = 67;
@@ -192,7 +262,112 @@ function createPlaceholderPng() {
   ]);
 }
 
-async function createPlaceholderClip(clip: TtsClip, jobId: string): Promise<DigitalHumanClip> {
+async function createAlphaWebm(
+  sourcePath: string,
+  outputBaseName: string,
+  chromaKey: NormalizedChromaKeyOptions,
+) {
+  const ffmpeg = await getFfmpegCommand();
+  const outputName = `${sanitizeId(outputBaseName)}-alpha.webm`;
+  const outputPath = path.join(outputDir, outputName);
+  const filter = `chromakey=color=${chromaKey.color}:similarity=${chromaKey.similarity}:blend=${chromaKey.blend},format=yuva420p`;
+
+  await runCommand(
+    ffmpeg,
+    [
+      "-y",
+      "-i",
+      sourcePath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
+      "-vf",
+      filter,
+      "-c:v",
+      "libvpx-vp9",
+      "-pix_fmt",
+      "yuva420p",
+      "-auto-alt-ref",
+      "0",
+      "-metadata:s:v:0",
+      "alpha_mode=1",
+      "-deadline",
+      "realtime",
+      "-cpu-used",
+      "6",
+      "-b:v",
+      "2M",
+      "-c:a",
+      "libopus",
+      "-b:a",
+      "96k",
+      outputPath,
+    ],
+    process.cwd(),
+  );
+
+  return {
+    outputPath,
+    outputUrl: `/output/digital-human/${outputName}`,
+  };
+}
+
+async function finalizeDigitalHumanClip({
+  clip,
+  source,
+  placeholder,
+  sourcePath,
+  sourceVideoUrl,
+  alphaEnabled,
+  chromaKey,
+}: {
+  clip: TtsClip;
+  source: DigitalHumanClip["source"];
+  placeholder: boolean;
+  sourcePath: string;
+  sourceVideoUrl: string;
+  alphaEnabled: boolean;
+  chromaKey: NormalizedChromaKeyOptions;
+}): Promise<DigitalHumanClip> {
+  let videoUrl = sourceVideoUrl;
+  let alphaVideoUrl: string | undefined;
+  let alphaError: string | undefined;
+
+  if (alphaEnabled) {
+    try {
+      const alphaResult = await createAlphaWebm(sourcePath, path.parse(sourcePath).name, chromaKey);
+      videoUrl = alphaResult.outputUrl;
+      alphaVideoUrl = alphaResult.outputUrl;
+    } catch (error: unknown) {
+      alphaError = getErrorMessage(error);
+    }
+  }
+
+  return {
+    sceneId: clip.sceneId,
+    role: clip.role,
+    layout: clip.layout,
+    copy: clip.copy,
+    audioUrl: clip.audioUrl,
+    videoUrl,
+    sourceVideoUrl,
+    alphaVideoUrl,
+    durationMs: clip.durationMs,
+    source,
+    alpha: Boolean(alphaVideoUrl),
+    alphaMode: alphaVideoUrl ? "chromakey-vp9" : "none",
+    alphaError,
+    placeholder,
+  };
+}
+
+async function createPlaceholderClip(
+  clip: TtsClip,
+  jobId: string,
+  alphaEnabled: boolean,
+  chromaKey: NormalizedChromaKeyOptions,
+): Promise<DigitalHumanClip> {
   const ffmpeg = await getFfmpegCommand();
   const audioPath = publicUrlToPath(clip.audioUrl);
   await fs.access(audioPath);
@@ -226,18 +401,15 @@ async function createPlaceholderClip(clip: TtsClip, jobId: string): Promise<Digi
     process.cwd(),
   );
 
-  return {
-    sceneId: clip.sceneId,
-    role: clip.role,
-    layout: clip.layout,
-    copy: clip.copy,
-    audioUrl: clip.audioUrl,
-    videoUrl: `/output/digital-human/${outputName}`,
-    durationMs: clip.durationMs,
+  return finalizeDigitalHumanClip({
+    clip,
     source: "ffmpeg-placeholder",
-    alpha: false,
     placeholder: true,
-  };
+    sourcePath: outputPath,
+    sourceVideoUrl: `/output/digital-human/${outputName}`,
+    alphaEnabled,
+    chromaKey,
+  });
 }
 
 async function writeMuseTalkConfig(clip: TtsClip, jobId: string) {
@@ -259,7 +431,12 @@ async function writeMuseTalkConfig(clip: TtsClip, jobId: string) {
   return { configPath, resultName };
 }
 
-async function createMuseTalkClip(clip: TtsClip, jobId: string): Promise<DigitalHumanClip> {
+async function createMuseTalkClip(
+  clip: TtsClip,
+  jobId: string,
+  alphaEnabled: boolean,
+  chromaKey: NormalizedChromaKeyOptions,
+): Promise<DigitalHumanClip> {
   const root = path.resolve(process.cwd(), "..", "external", "musetalk");
   const python = process.env.MUSETALK_PYTHON || "python";
   const version = process.env.MUSETALK_VERSION || "v15";
@@ -297,18 +474,15 @@ async function createMuseTalkClip(clip: TtsClip, jobId: string): Promise<Digital
   const publicPath = path.join(outputDir, publicName);
   await fs.copyFile(generatedPath, publicPath);
 
-  return {
-    sceneId: clip.sceneId,
-    role: clip.role,
-    layout: clip.layout,
-    copy: clip.copy,
-    audioUrl: clip.audioUrl,
-    videoUrl: `/output/digital-human/${publicName}`,
-    durationMs: clip.durationMs,
+  return finalizeDigitalHumanClip({
+    clip,
     source: "musetalk-cli",
-    alpha: false,
     placeholder: false,
-  };
+    sourcePath: publicPath,
+    sourceVideoUrl: `/output/digital-human/${publicName}`,
+    alphaEnabled,
+    chromaKey,
+  });
 }
 
 function needsDigitalHuman(scene: ScriptScene | undefined, clip: TtsClip) {
@@ -330,9 +504,21 @@ export async function POST(request: NextRequest) {
   const scenesById = new Map((data.script?.scenes ?? []).map((scene) => [scene.id, scene]));
   const jobId = `dh_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
   const requestedProvider = data.provider ?? "auto";
+  const alphaEnabled = data.alpha !== false;
+  const chromaKey = normalizeChromaKey(data.chromaKey);
   const targetClips = clips.filter((clip) => needsDigitalHuman(scenesById.get(clip.sceneId), clip));
   const generated: DigitalHumanClip[] = [];
   const errors: Array<{ sceneId: string; message: string }> = [];
+
+  const addGeneratedClip = (clip: DigitalHumanClip) => {
+    generated.push(clip);
+    if (clip.alphaError) {
+      errors.push({
+        sceneId: clip.sceneId,
+        message: `Alpha channel failed: ${clip.alphaError}`,
+      });
+    }
+  };
 
   for (const clip of targetClips) {
     try {
@@ -340,17 +526,17 @@ export async function POST(request: NextRequest) {
         requestedProvider === "musetalk-cli"
         || (requestedProvider === "auto" && process.env.MUSETALK_ENABLE === "1")
       ) {
-        generated.push(await createMuseTalkClip(clip, jobId));
+        addGeneratedClip(await createMuseTalkClip(clip, jobId, alphaEnabled, chromaKey));
       } else {
-        generated.push(await createPlaceholderClip(clip, jobId));
+        addGeneratedClip(await createPlaceholderClip(clip, jobId, alphaEnabled, chromaKey));
       }
     } catch (error: unknown) {
       if (requestedProvider === "musetalk-cli") throw error;
       errors.push({
         sceneId: clip.sceneId,
-        message: error instanceof Error ? error.message : "MuseTalk failed",
+        message: getErrorMessage(error),
       });
-      generated.push(await createPlaceholderClip(clip, jobId));
+      addGeneratedClip(await createPlaceholderClip(clip, jobId, alphaEnabled, chromaKey));
     }
   }
 
@@ -358,6 +544,8 @@ export async function POST(request: NextRequest) {
     {
       jobId,
       provider: generated.some((clip) => clip.source === "musetalk-cli") ? "musetalk-cli" : "ffmpeg-placeholder",
+      alpha: generated.length > 0 && generated.every((clip) => clip.alpha),
+      chromaKey: alphaEnabled ? chromaKey : null,
       clips: generated,
       errors,
       totalDurationMs: generated.reduce((sum, clip) => sum + clip.durationMs, 0),

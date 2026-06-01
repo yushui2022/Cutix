@@ -167,15 +167,25 @@ type DigitalHumanClip = {
   copy: string;
   audioUrl: string;
   videoUrl: string;
+  sourceVideoUrl?: string;
+  alphaVideoUrl?: string;
   durationMs: number;
   source: string;
   alpha: boolean;
+  alphaMode?: string;
+  alphaError?: string;
   placeholder: boolean;
 };
 
 type DigitalHumanPreview = {
   jobId: string;
   provider: string;
+  alpha?: boolean;
+  chromaKey?: {
+    color: string;
+    similarity: number;
+    blend: number;
+  } | null;
   clips: DigitalHumanClip[];
   errors: Array<{ sceneId: string; message: string }>;
   totalDurationMs: number;
@@ -198,6 +208,13 @@ const defaultLlmConfig: PublicLlmConfig = {
 
 const seedIps: IP[] = defaultBrands;
 const seedTemplates: Template[] = defaultTemplates;
+const alphaPreviewStyle = {
+  backgroundColor: "#111827",
+  backgroundImage:
+    "linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)",
+  backgroundSize: "20px 20px",
+  backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0px",
+};
 
 const seedAssets: Asset[] = [
   {
@@ -731,13 +748,20 @@ export default function Home() {
           script: scriptPreview,
           tts: ttsPreview,
           provider: "auto",
+          alpha: true,
+          chromaKey: {
+            color: "#00FF00",
+            similarity: 0.18,
+            blend: 0.08,
+          },
         }),
       });
       if (!res.ok) throw new Error(await res.text());
 
       const payload = (await res.json()) as DigitalHumanPreview;
+      const alphaCount = payload.clips.filter((clip) => clip.alpha).length;
       setDigitalHumanPreview(payload);
-      setStatus(`数字人片段完成：${payload.clips.length} 段，${payload.provider}`);
+      setStatus(`数字人片段完成：${payload.clips.length} 段，透明通道 ${alphaCount} 段`);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("数字人生成失败: " + message);
@@ -1737,15 +1761,37 @@ export default function Home() {
                         {formatDuration(clip.durationMs)}
                       </span>
                     </div>
-                    <video className="aspect-[9/8] w-full rounded-lg bg-black" controls src={clip.videoUrl} />
+                    <div className="overflow-hidden rounded-lg" style={clip.alpha ? alphaPreviewStyle : undefined}>
+                      <video className="aspect-[9/8] w-full bg-transparent" controls src={clip.videoUrl} />
+                    </div>
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                       <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-white/45">
                         {clip.source}
                       </span>
+                      {clip.alpha && (
+                        <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-emerald-100">
+                          透明通道
+                        </span>
+                      )}
                       {clip.placeholder && (
                         <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-amber-100">
                           占位片段
                         </span>
+                      )}
+                      {clip.alphaError && (
+                        <span className="rounded-full border border-red-300/20 bg-red-300/10 px-2 py-0.5 text-red-100">
+                          抠绿失败
+                        </span>
+                      )}
+                      {clip.sourceVideoUrl && clip.sourceVideoUrl !== clip.videoUrl && (
+                        <a
+                          className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-white/50 transition hover:text-white"
+                          href={clip.sourceVideoUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          源 MP4
+                        </a>
                       )}
                     </div>
                   </div>
