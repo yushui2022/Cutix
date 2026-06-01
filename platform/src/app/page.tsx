@@ -254,6 +254,23 @@ type DigitalHumanPreview = {
   totalDurationMs: number;
 };
 
+type RenderTask = {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  stage: string;
+  brandName: string;
+  templateName: string;
+  platform: string;
+  videoPlanId?: string;
+  resultUrl?: string;
+  previewUrl?: string;
+  coverUrl?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
@@ -442,9 +459,22 @@ export default function Home() {
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
+  const [currentTaskId, setCurrentTaskId] = useState("");
+  const [renderTasks, setRenderTasks] = useState<RenderTask[]>([]);
   const [resultUrl, setResultUrl] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
+
+  const loadRenderTasks = async () => {
+    try {
+      const res = await fetch("/api/render-tasks");
+      if (!res.ok) throw new Error(await res.text());
+      const payload = (await res.json()) as { tasks?: RenderTask[] };
+      setRenderTasks(Array.isArray(payload.tasks) ? payload.tasks : []);
+    } catch {
+      setRenderTasks([]);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -548,6 +578,10 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    void loadRenderTasks();
   }, []);
 
   const selectedAssetList = useMemo(
@@ -926,6 +960,7 @@ export default function Home() {
     try {
       const data: unknown = JSON.parse(line.slice(6));
       if (typeof data !== "object" || data === null) return;
+      if ("taskId" in data && typeof data.taskId === "string") setCurrentTaskId(data.taskId);
       if ("status" in data && typeof data.status === "string") setStatus(data.status);
       if ("resultUrl" in data && typeof data.resultUrl === "string") setResultUrl(data.resultUrl);
       if ("previewUrl" in data && typeof data.previewUrl === "string") setPreviewUrl(data.previewUrl);
@@ -943,6 +978,7 @@ export default function Home() {
 
     setGenerating(true);
     setStatus("正在组装成片 Timeline...");
+    setCurrentTaskId("");
     setResultUrl("");
     setPreviewUrl("");
     setCoverUrl("");
@@ -989,6 +1025,7 @@ export default function Home() {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("失败: " + message);
     } finally {
+      await loadRenderTasks();
       setGenerating(false);
     }
   };
@@ -2260,6 +2297,47 @@ export default function Home() {
             <div className="rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/80">
               {status}
             </div>
+            {currentTaskId && (
+              <div className="mt-2 rounded-xl border border-cyan-300/15 bg-cyan-300/10 p-3 text-xs text-cyan-100">
+                当前任务：{currentTaskId}
+              </div>
+            )}
+            {renderTasks.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <div className="text-xs font-semibold text-white/55">最近生成任务</div>
+                {renderTasks.slice(0, 3).map((task) => (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3" key={task.id}>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-semibold text-white">{task.brandName}</span>
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
+                        task.status === "completed"
+                          ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                          : task.status === "failed"
+                            ? "border-red-300/20 bg-red-300/10 text-red-100"
+                            : "border-[#ff3b5c]/30 bg-[#ff3b5c]/10 text-[#ff3b5c]"
+                      }`}
+                      >
+                        {task.status === "completed" ? "完成" : task.status === "failed" ? "失败" : "运行"}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-white/45">
+                      {task.platform} · {task.templateName} · {task.createdAt.slice(5, 16).replace("T", " ")}
+                    </div>
+                    <div className="mt-1 line-clamp-1 text-[11px] text-white/55">{task.stage}</div>
+                    {task.previewUrl && (
+                      <a
+                        className="mt-2 inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white"
+                        href={task.previewUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        查看预览
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="mt-4 grid grid-cols-1 gap-2">
               <button
                 className="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -2274,6 +2352,7 @@ export default function Home() {
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/80 hover:bg-white/[0.07] hover:text-white transition"
                 onClick={() => {
                   setStatus("待生成");
+                  setCurrentTaskId("");
                   setResultUrl("");
                   setPreviewUrl("");
                   setCoverUrl("");

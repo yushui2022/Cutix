@@ -2,9 +2,11 @@ import { NextRequest } from "next/server";
 import { bundle } from "@remotion/bundler";
 import { getCompositions, renderMedia } from "@remotion/renderer";
 import { spawn } from "child_process";
+import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import { createRenderTask, updateRenderTask } from "@/lib/render-task-store";
 
 type SceneLayout = "full_dh" | "dh_top_broll_bottom" | "broll_top_dh_bottom" | "full_broll";
 
@@ -41,6 +43,7 @@ type GeneratedScript = {
   scenes: ScriptScene[];
   cta?: string;
   videoPlan?: {
+    id?: string;
     scenes?: VideoPlanScene[];
   };
 };
@@ -127,6 +130,10 @@ type RenderProps = {
 type RenderRequest = {
   ipId?: string;
   brand?: BrandInput;
+  template?: {
+    id?: string;
+    name?: string;
+  };
   script?: GeneratedScript;
   selection?: AssetSelectionPreview | null;
   tts?: TtsPreview | null;
@@ -449,10 +456,22 @@ export async function POST(request: NextRequest) {
   const body: unknown = await request.json();
   const data = typeof body === "object" && body !== null ? body as RenderRequest : {};
   const ipId = data.ipId ?? data.brand?.id ?? "wang";
+  const brand = brandFromRequest(ipId, data.brand);
+  const taskId = `task_${ipId}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 
   if (!ipConfigs[ipId] && !data.brand) {
     return Response.json({ error: "Unknown IP" }, { status: 400 });
   }
+
+  await createRenderTask({
+    id: taskId,
+    brandId: ipId,
+    brandName: brand.name,
+    templateId: data.template?.id ?? "default",
+    templateName: data.template?.name ?? "默认模板",
+    platform: data.script?.platform ?? "未知平台",
+    videoPlanId: data.script?.videoPlan?.id,
+  });
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -462,10 +481,16 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        send({ status: "正在组装 Timeline..." });
+        send({ taskId, status: "任务已创建，正在组装 Timeline..." });
+        await updateRenderTask(taskId, { status: "running", stage: "正在组装 Timeline..." });
         const timeline = buildTimeline(data);
 
         send({ status: `Remotion 同屏合成中：${timeline.scenes.length} 个分镜...` });
+        await updateRenderTask(taskId, {
+          status: "running",
+          stage: `Remotion 同屏合成中：${timeline.scenes.length} 个分镜`,
+          scenes: timeline.scenes.length,
+        });
 
         const outputId = `cutix_${ipId}_${Date.now()}`;
         const outputFile = path.join(os.tmpdir(), `${outputId}.mp4`);
@@ -473,10 +498,23 @@ export async function POST(request: NextRequest) {
         await renderRemotion(timeline, outputFile);
 
         send({ status: "FFmpeg 后处理中：标准化、封面、低清预览..." });
+        await updateRenderTask(taskId, { status: "running", stage: "FFmpeg 后处理中" });
         const postProcessed = await postProcessVideo(outputFile, outputId);
         fs.rmSync(outputFile, { force: true });
 
+        await updateRenderTask(taskId, {
+          status: "completed",
+          stage: "完成",
+          resultUrl: postProcessed.resultUrl,
+          previewUrl: postProcessed.previewUrl,
+          coverUrl: postProcessed.coverUrl,
+          hasAudio: postProcessed.hasAudio,
+          scenes: timeline.scenes.length,
+          completedAt: new Date().toISOString(),
+        });
+
         send({
+          taskId,
           status: "完成！",
           resultUrl: postProcessed.resultUrl,
           previewUrl: postProcessed.previewUrl,
@@ -487,7 +525,13 @@ export async function POST(request: NextRequest) {
       } catch (error: unknown) {
         console.error("Render error:", error);
         const message = error instanceof Error ? error.message : "Unknown render error";
-        send({ status: `失败: ${message}` });
+        await updateRenderTask(taskId, {
+          status: "failed",
+          stage: "失败",
+          error: message,
+          completedAt: new Date().toISOString(),
+        });
+        send({ taskId, status: `失败: ${message}` });
       } finally {
         controller.close();
       }

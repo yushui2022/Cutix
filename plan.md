@@ -26,10 +26,11 @@
 18. 已完成分镜编排预览 MVP：右侧预览不再固定为“上人下素材”，会按脚本里的 scene layout 展示全屏数字人、全屏素材、上人下素材、上素材下人等分段结构。
 19. 已完成 `videoPlan` 编排契约 MVP：`/api/script` 在兼容旧 `scenes` 的同时输出 `videoPlan`，包含全局节奏、BGM 情绪、每段画面目标、数字人位置、素材槽位、字幕策略和转场；`/api/selection` 和 `/api/render` 已开始消费该编排计划。
 20. 已完成 `videoPlan` 版本化与本地持久化 MVP：每次生成会带 `id`、`schemaVersion = cutix.video_plan.v1`、`createdAt`，并写入 `platform/data/video-plans/`，用于后续失败重试、替换素材后复用同一编排。
+21. 已完成生成任务台账 MVP：`/api/render` 会创建 render task，持续写入 `platform/data/render-tasks/`，记录 `videoPlan.id`、阶段、结果 URL 和失败原因；前端任务状态卡可查看最近任务。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 把 `/api/render` 从同步渲染升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态，并把 `videoPlan.id` 写入任务记录。
+1. 把生成任务台账升级为真正后台队列：`POST /api/render-tasks` 创建任务，Worker 进程异步渲染，前端轮询/订阅任务状态。
 2. 把 `videoPlan` 从 MVP 校验升级为严格 JSON Schema：支持版本迁移、模型输出修复和人工锁定。
 3. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
 4. 增加 IP/品牌、标签体系、模板包的后台管理页面。
@@ -349,10 +350,12 @@ worker_events   — Worker 日志
 - [x] Remotion 模板合成（MVP：数字人 alpha + B-roll + TTS 音频 + 字幕 Timeline）
 - [x] FFmpeg 后处理（MVP：H.264/AAC + 封面 + 低清预览 + loudnorm）
 - [x] 成品下载（MVP：结果预览 + 正式 MP4 下载）
+- [x] 生成任务台账（MVP：本地 JSON 持久化任务状态和结果 URL）
 
 ### 第二期：批量生产
 
 - [ ] 任务队列（BullMQ）+ 多 Worker 并发
+- [ ] Render Worker 从同步 SSE 拆出，按 `videoPlan.id` 异步执行
 - [ ] 数字人分段并行渲染 + 缓存复用
 - [ ] 失败重试 + 完整错误日志
 - [ ] 批量生成任务（一次提交 N 条）
