@@ -15,6 +15,7 @@
 7. 已完成大模型接口配置 MVP：`/api/llm-config` 支持用户填写本地/兼容大模型 API、模型名和 API Key。
 8. 已完成基础 Remotion 渲染 API：`/api/render` 会根据 IP 生成脚本并调用 Remotion 输出 MP4。
 9. 已完成结构化分镜脚本生成 MVP：`/api/script` 支持本地规则兜底和 OpenAI-compatible 大模型接口，前端可预览 scene、布局、数字人需求和素材标签。
+10. 已完成自动选材 MVP：`/api/selection` 会按分镜标签、布局、数字人槽位、B-roll 槽位和 BGM 对素材库打分，前端可预览匹配结果并同步选中素材。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -330,7 +331,7 @@ worker_events   — Worker 日志
 - [x] 素材上传 + 缩略图自动生成 + 人工标签（MVP：本地文件 + 本地 JSON）
 - [x] IP/品牌配置 + 模板管理（3 个模板，MVP：本地 JSON 配置）
 - [x] LLM 文案生成（结构化分镜脚本 + JSON Schema 校验，MVP：本地规则兜底 + 可选大模型接口）
-- [ ] 自动选材（标签规则评分）
+- [x] 自动选材（标签规则评分，MVP：scene 槽位拆分 + 素材打分 + 前端预览）
 - [ ] CosyVoice 2 TTS 集成
 - [ ] MuseTalk 数字人集成（单角色）
 - [ ] FFmpeg 抠绿 + alpha 通道

@@ -91,6 +91,49 @@ type GeneratedScript = {
   cta: string;
 };
 
+type SelectionAsset = Pick<
+  Asset,
+  "id" | "name" | "type" | "duration" | "orientation" | "tags" | "status" | "color" | "source" | "url" | "thumbnailUrl"
+> & {
+  score: number;
+  matchedTags: string[];
+  reasons: string[];
+};
+
+type SlotSelection = {
+  slot: string;
+  label: string;
+  requiredTypes: Asset["type"][];
+  requiredTags: string[];
+  primaryAsset: SelectionAsset | null;
+  backupAssets: SelectionAsset[];
+  warning?: string;
+};
+
+type SceneSelectionPreview = {
+  sceneId: string;
+  role: string;
+  layout: string;
+  copy: string;
+  slots: SlotSelection[];
+  warnings: string[];
+};
+
+type AssetSelectionPreview = {
+  selections: SceneSelectionPreview[];
+  global: {
+    bgm: SelectionAsset | null;
+    warning?: string;
+  };
+  selectedAssetIds: string[];
+  coverage: {
+    scenes: number;
+    slots: number;
+    filledSlots: number;
+    ratio: number;
+  };
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
@@ -238,6 +281,8 @@ export default function Home() {
   const [scriptGenerating, setScriptGenerating] = useState(false);
   const [scriptSource, setScriptSource] = useState("");
   const [scriptPreview, setScriptPreview] = useState<GeneratedScript | null>(null);
+  const [selectingAssets, setSelectingAssets] = useState(false);
+  const [selectionPreview, setSelectionPreview] = useState<AssetSelectionPreview | null>(null);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
@@ -533,12 +578,48 @@ export default function Home() {
       };
       setScriptPreview(payload.script);
       setScriptSource(payload.source);
+      setSelectionPreview(null);
       setStatus(payload.llmError ? `脚本已生成，本地兜底：${payload.llmError}` : "结构化分镜脚本已生成");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("脚本生成失败: " + message);
     } finally {
       setScriptGenerating(false);
+    }
+  };
+
+  const handleAutoSelectAssets = async () => {
+    if (!scriptPreview) {
+      setStatus("请先生成结构化分镜脚本");
+      return;
+    }
+
+    setSelectingAssets(true);
+    setStatus("正在按脚本标签自动选材...");
+
+    try {
+      const res = await fetch("/api/selection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script: scriptPreview,
+          assets,
+          targetPlatform,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as AssetSelectionPreview;
+      setSelectionPreview(payload);
+      if (payload.selectedAssetIds.length > 0) {
+        setSelectedAssets(payload.selectedAssetIds);
+      }
+      setStatus(`自动选材完成：${payload.coverage.filledSlots}/${payload.coverage.slots} 个素材位已匹配`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("自动选材失败: " + message);
+    } finally {
+      setSelectingAssets(false);
     }
   };
 
@@ -1318,6 +1399,121 @@ export default function Home() {
             ) : (
               <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/45">
                 暂无脚本草案
+              </div>
+            )}
+          </section>
+
+          <section className={cardBase}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-wider text-white/40">Matching</div>
+                <h2 className="mt-1 text-base font-semibold text-white">选材方案</h2>
+                <p className="mt-0.5 text-xs text-white/50">
+                  {selectionPreview ? `${selectionPreview.coverage.filledSlots}/${selectionPreview.coverage.slots} 个素材位` : "等待脚本"}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 text-xs font-semibold text-emerald-200">
+                {selectionPreview ? `${selectionPreview.coverage.ratio}%` : "待匹配"}
+              </span>
+            </div>
+
+            <button
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/85 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={selectingAssets || !scriptPreview}
+              onClick={handleAutoSelectAssets}
+              type="button"
+            >
+              <Tags className="h-4 w-4" />
+              {selectingAssets ? "匹配中..." : "自动选材"}
+            </button>
+
+            {selectionPreview ? (
+              <div className="mt-4 space-y-3">
+                {selectionPreview.global.bgm ? (
+                  <div className="rounded-xl border border-white/8 bg-white/[0.03] p-3">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-white">BGM</span>
+                      <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-white/50">
+                        {selectionPreview.global.bgm.score} 分
+                      </span>
+                    </div>
+                    <div className="text-xs text-white/70">{selectionPreview.global.bgm.name}</div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs text-amber-100">
+                    {selectionPreview.global.warning}
+                  </div>
+                )}
+
+                <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
+                  {selectionPreview.selections.map((scene, index) => (
+                    <div className="rounded-xl border border-white/8 bg-black/20 p-3" key={scene.sceneId}>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-white">
+                          {index + 1}. {sceneRoleLabel[scene.role] ?? scene.role}
+                        </span>
+                        <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-white/50">
+                          {sceneLayoutLabel[scene.layout] ?? scene.layout}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {scene.slots.map((slot) => (
+                          <div className="rounded-lg border border-white/8 bg-white/[0.025] p-2.5" key={slot.slot}>
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-semibold text-white/60">{slot.label}</span>
+                              {slot.primaryAsset && (
+                                <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-white/50">
+                                  {slot.primaryAsset.score} 分
+                                </span>
+                              )}
+                            </div>
+
+                            {slot.primaryAsset ? (
+                              <>
+                                <div className="flex items-start gap-2">
+                                  <span
+                                    className="mt-0.5 h-3 w-3 shrink-0 rounded-full"
+                                    style={{ backgroundColor: slot.primaryAsset.color }}
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="truncate text-xs font-medium text-white">
+                                      {slot.primaryAsset.name}
+                                    </div>
+                                    <div className="mt-0.5 text-[11px] text-white/45">
+                                      {typeLabel[slot.primaryAsset.type]} · {statusLabel[slot.primaryAsset.status]}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {slot.primaryAsset.matchedTags.slice(0, 4).map((tag) => (
+                                    <span
+                                      className="rounded-full border border-emerald-300/15 bg-emerald-300/10 px-2 py-0.5 text-[11px] text-emerald-100"
+                                      key={tag}
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                  {slot.backupAssets.length > 0 && (
+                                    <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/45">
+                                      备选 {slot.backupAssets.length}
+                                    </span>
+                                  )}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-xs text-amber-100">{slot.warning}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/45">
+                暂无选材方案
               </div>
             )}
           </section>
