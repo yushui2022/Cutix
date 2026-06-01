@@ -12,7 +12,8 @@
 4. 已完成基础自动打标签：根据文件名、MIME 类型和关键词生成门店、人流、产品、招商、口播、BGM 等初始标签。
 5. 已完成素材库 MVP 复核能力：视频缩略图、图片预览、标签编辑、启用/禁用。
 6. 已完成 IP/品牌与模板配置 MVP：`/api/config` 支持本地读取、编辑、保存品牌和模板配置。
-7. 已完成基础 Remotion 渲染 API：`/api/render` 会根据 IP 生成脚本并调用 Remotion 输出 MP4。
+7. 已完成大模型接口配置 MVP：`/api/llm-config` 支持用户填写本地/兼容大模型 API、模型名和 API Key。
+8. 已完成基础 Remotion 渲染 API：`/api/render` 会根据 IP 生成脚本并调用 Remotion 输出 MP4。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -362,5 +363,5 @@ worker_events   — Worker 日志
 - [ ] CosyVoice 2 本地部署 + 接口调试
 - [ ] MuseTalk 本地部署 + 接口调试
 - [ ] Remotion 写第一个合成模板（数字人 PIP + B-roll + 字幕）
-- [ ] 确定本地 LLM 方案（vLLM / Ollama / 其他）
+- [x] 确定本地 LLM 方案配置入口（vLLM / Ollama / OpenAI Compatible，MVP：用户自行填写 API）
 - [ ] 确定是否需要多租户/用户权限

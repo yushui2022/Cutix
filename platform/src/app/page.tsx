@@ -59,10 +59,34 @@ type Template = {
   accent: string;
 };
 
+type LlmProvider = "openai-compatible" | "ollama" | "vllm" | "custom";
+
+type PublicLlmConfig = {
+  provider: LlmProvider;
+  baseUrl: string;
+  model: string;
+  temperature: number;
+  apiKeySet: boolean;
+  apiKeyPreview: string;
+};
+
+type LlmConfigDraft = Omit<PublicLlmConfig, "apiKeySet" | "apiKeyPreview"> & {
+  apiKey: string;
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
   icon: LucideIcon;
+};
+
+const defaultLlmConfig: PublicLlmConfig = {
+  provider: "openai-compatible",
+  baseUrl: "http://127.0.0.1:11434/v1",
+  model: "qwen2.5:7b",
+  temperature: 0.7,
+  apiKeySet: false,
+  apiKeyPreview: "",
 };
 
 const seedIps: IP[] = defaultBrands;
@@ -163,6 +187,8 @@ export default function Home() {
   const [selectedTemplate, setSelectedTemplate] = useState<Template>(seedTemplates[0]);
   const [brandDraft, setBrandDraft] = useState<IP>(seedIps[0]);
   const [templateDraft, setTemplateDraft] = useState<Template>(seedTemplates[0]);
+  const [llmConfig, setLlmConfig] = useState<PublicLlmConfig>(defaultLlmConfig);
+  const [llmDraft, setLlmDraft] = useState<LlmConfigDraft>({ ...defaultLlmConfig, apiKey: "" });
   const [selectedAssets, setSelectedAssets] = useState<string[]>(["store", "product", "avatar"]);
   const [assets, setAssets] = useState<Asset[]>(seedAssets);
   const [targetPlatform, setTargetPlatform] = useState(platforms[0]);
@@ -209,6 +235,31 @@ export default function Home() {
   useEffect(() => {
     setTemplateDraft(selectedTemplate);
   }, [selectedTemplate]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/llm-config")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load LLM config"))))
+      .then((payload: PublicLlmConfig) => {
+        if (cancelled) return;
+        setLlmConfig(payload);
+        setLlmDraft({
+          provider: payload.provider,
+          baseUrl: payload.baseUrl,
+          model: payload.model,
+          temperature: payload.temperature,
+          apiKey: "",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("大模型接口配置加载失败，当前显示默认本地接口");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -373,6 +424,39 @@ export default function Home() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("模板配置保存失败: " + message);
+    }
+  };
+
+  const saveLlmConfig = async () => {
+    try {
+      const payload: Partial<LlmConfigDraft> = {
+        provider: llmDraft.provider,
+        baseUrl: llmDraft.baseUrl,
+        model: llmDraft.model,
+        temperature: Number(llmDraft.temperature),
+      };
+      if (llmDraft.apiKey.trim()) payload.apiKey = llmDraft.apiKey.trim();
+
+      const res = await fetch("/api/llm-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const nextConfig = (await res.json()) as PublicLlmConfig;
+      setLlmConfig(nextConfig);
+      setLlmDraft({
+        provider: nextConfig.provider,
+        baseUrl: nextConfig.baseUrl,
+        model: nextConfig.model,
+        temperature: nextConfig.temperature,
+        apiKey: "",
+      });
+      setStatus(`已保存大模型接口：${nextConfig.model}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("大模型接口保存失败: " + message);
     }
   };
 
@@ -548,6 +632,86 @@ export default function Home() {
                   );
                 })}
               </div>
+            </div>
+          </section>
+
+          <section className={cardBase}>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-white">大模型接口</h2>
+                <p className="mt-1 text-xs text-white/50">兼容本地 Ollama / vLLM / OpenAI 风格接口</p>
+              </div>
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                llmConfig.apiKeySet
+                  ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                  : "border-white/10 bg-white/5 text-white/50"
+              }`}
+              >
+                {llmConfig.apiKeySet ? "已配置 Key" : "可留空"}
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-xs font-medium text-white/60">
+                接口类型
+                <select
+                  className={fieldClass}
+                  onChange={(event) => setLlmDraft({ ...llmDraft, provider: event.target.value as LlmProvider })}
+                  value={llmDraft.provider}
+                >
+                  <option className="bg-[#0a0b14]" value="openai-compatible">OpenAI Compatible</option>
+                  <option className="bg-[#0a0b14]" value="ollama">Ollama</option>
+                  <option className="bg-[#0a0b14]" value="vllm">vLLM</option>
+                  <option className="bg-[#0a0b14]" value="custom">自定义</option>
+                </select>
+              </label>
+              <label className="block text-xs font-medium text-white/60">
+                Base URL
+                <input
+                  className={fieldClass}
+                  onChange={(event) => setLlmDraft({ ...llmDraft, baseUrl: event.target.value })}
+                  placeholder="http://127.0.0.1:11434/v1"
+                  value={llmDraft.baseUrl}
+                />
+              </label>
+              <label className="block text-xs font-medium text-white/60">
+                模型名
+                <input
+                  className={fieldClass}
+                  onChange={(event) => setLlmDraft({ ...llmDraft, model: event.target.value })}
+                  placeholder="qwen2.5:7b"
+                  value={llmDraft.model}
+                />
+              </label>
+              <label className="block text-xs font-medium text-white/60">
+                API Key
+                <input
+                  className={fieldClass}
+                  onChange={(event) => setLlmDraft({ ...llmDraft, apiKey: event.target.value })}
+                  placeholder={llmConfig.apiKeySet ? `已保存 ${llmConfig.apiKeyPreview}，留空则保留` : "本地模型可留空"}
+                  type="password"
+                  value={llmDraft.apiKey}
+                />
+              </label>
+              <label className="block text-xs font-medium text-white/60">
+                Temperature
+                <input
+                  className={fieldClass}
+                  max={2}
+                  min={0}
+                  onChange={(event) => setLlmDraft({ ...llmDraft, temperature: Number(event.target.value) })}
+                  step={0.1}
+                  type="number"
+                  value={llmDraft.temperature}
+                />
+              </label>
+              <button
+                className="btn-primary inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                onClick={saveLlmConfig}
+                type="button"
+              >
+                保存大模型接口
+              </button>
             </div>
           </section>
 
