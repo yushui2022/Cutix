@@ -2,7 +2,7 @@
 
 ## 0. 当前推进状态
 
-更新时间：2026-05-31
+更新时间：2026-06-01
 
 当前仓库已经不再只是概念验证，`platform/` 内有一个可运行的 Next.js Web 控制台：
 
@@ -14,6 +14,7 @@
 6. 已完成 IP/品牌与模板配置 MVP：`/api/config` 支持本地读取、编辑、保存品牌和模板配置。
 7. 已完成大模型接口配置 MVP：`/api/llm-config` 支持用户填写本地/兼容大模型 API、模型名和 API Key。
 8. 已完成基础 Remotion 渲染 API：`/api/render` 会根据 IP 生成脚本并调用 Remotion 输出 MP4。
+9. 已完成结构化分镜脚本生成 MVP：`/api/script` 支持本地规则兜底和 OpenAI-compatible 大模型接口，前端可预览 scene、布局、数字人需求和素材标签。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -328,7 +329,7 @@ worker_events   — Worker 日志
 - [ ] 平台工程搭建（Next.js/NestJS + PostgreSQL + Redis + MinIO + Docker）
 - [x] 素材上传 + 缩略图自动生成 + 人工标签（MVP：本地文件 + 本地 JSON）
 - [x] IP/品牌配置 + 模板管理（3 个模板，MVP：本地 JSON 配置）
-- [ ] LLM 文案生成（结构化分镜脚本 + JSON Schema 校验）
+- [x] LLM 文案生成（结构化分镜脚本 + JSON Schema 校验，MVP：本地规则兜底 + 可选大模型接口）
 - [ ] 自动选材（标签规则评分）
 - [ ] CosyVoice 2 TTS 集成
 - [ ] MuseTalk 数字人集成（单角色）

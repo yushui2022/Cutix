@@ -74,6 +74,23 @@ type LlmConfigDraft = Omit<PublicLlmConfig, "apiKeySet" | "apiKeyPreview"> & {
   apiKey: string;
 };
 
+type ScriptScene = {
+  id: string;
+  role: string;
+  layout: string;
+  durationSec: number;
+  copy: string;
+  visualTags: string[];
+  needsDigitalHuman: boolean;
+};
+
+type GeneratedScript = {
+  title: string;
+  platform: string;
+  scenes: ScriptScene[];
+  cta: string;
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
@@ -179,6 +196,28 @@ const statusStyle: Record<Asset["status"], string> = {
   disabled: "bg-white/5 text-white/40 border border-white/10",
 };
 
+const scriptSourceLabel: Record<string, string> = {
+  "": "未生成",
+  "local-rules": "本地规则",
+  llm: "大模型",
+  "local-fallback": "本地兜底",
+};
+
+const sceneRoleLabel: Record<string, string> = {
+  hook: "开场钩子",
+  pain: "痛点",
+  solution: "方案",
+  proof: "证明",
+  cta: "转化",
+};
+
+const sceneLayoutLabel: Record<string, string> = {
+  full_dh: "全屏数字人",
+  dh_top_broll_bottom: "上人下素材",
+  broll_top_dh_bottom: "上素材下人",
+  full_broll: "全屏素材",
+};
+
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [ips, setIps] = useState<IP[]>(seedIps);
@@ -196,6 +235,9 @@ export default function Home() {
   const [count, setCount] = useState(6);
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [scriptGenerating, setScriptGenerating] = useState(false);
+  const [scriptSource, setScriptSource] = useState("");
+  const [scriptPreview, setScriptPreview] = useState<GeneratedScript | null>(null);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
@@ -457,6 +499,46 @@ export default function Home() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("大模型接口保存失败: " + message);
+    }
+  };
+
+  const handleGenerateScript = async () => {
+    setScriptGenerating(true);
+    setStatus("正在生成结构化分镜脚本...");
+
+    try {
+      const shouldUseLlm = llmConfig.apiKeySet
+        || llmConfig.provider !== defaultLlmConfig.provider
+        || llmConfig.baseUrl !== defaultLlmConfig.baseUrl
+        || llmConfig.model !== defaultLlmConfig.model;
+      const assetTags = selectedAssetList.flatMap((asset) => asset.tags);
+      const res = await fetch("/api/script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brand: selectedIP,
+          template: selectedTemplate,
+          targetPlatform,
+          copyMode,
+          assetTags,
+          useLlm: shouldUseLlm,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as {
+        source: string;
+        script: GeneratedScript;
+        llmError?: string;
+      };
+      setScriptPreview(payload.script);
+      setScriptSource(payload.source);
+      setStatus(payload.llmError ? `脚本已生成，本地兜底：${payload.llmError}` : "结构化分镜脚本已生成");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("脚本生成失败: " + message);
+    } finally {
+      setScriptGenerating(false);
     }
   };
 
@@ -1162,6 +1244,82 @@ export default function Home() {
                 普通门店如何复制增长模型？
               </div>
             </div>
+          </section>
+
+          <section className={cardBase}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-wider text-white/40">Script</div>
+                <h2 className="mt-1 text-base font-semibold text-white">脚本草案</h2>
+                <p className="mt-0.5 text-xs text-white/50">
+                  {selectedIP.name} · {selectedTemplate.name}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs font-semibold text-cyan-200">
+                {scriptSourceLabel[scriptSource] ?? scriptSource}
+              </span>
+            </div>
+
+            <button
+              className="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={scriptGenerating}
+              onClick={handleGenerateScript}
+              type="button"
+            >
+              <WandSparkles className="h-4 w-4" />
+              {scriptGenerating ? "生成中..." : "生成分镜脚本"}
+            </button>
+
+            {scriptPreview ? (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl border border-white/8 bg-white/[0.03] p-3">
+                  <div className="text-sm font-semibold leading-5 text-white">{scriptPreview.title}</div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-medium text-white/60">
+                    <span className="rounded-full bg-white/5 px-2 py-1">{scriptPreview.platform}</span>
+                    <span className="rounded-full bg-white/5 px-2 py-1">{scriptPreview.scenes.length} 个分镜</span>
+                    <span className="rounded-full bg-white/5 px-2 py-1">{scriptPreview.cta}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {scriptPreview.scenes.map((scene, index) => (
+                    <div className="rounded-xl border border-white/8 bg-black/20 p-3" key={`${scene.id}-${index}`}>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-white">
+                          {index + 1}. {sceneRoleLabel[scene.role] ?? scene.role}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[11px] font-medium text-white/50">
+                          {scene.durationSec}s
+                        </span>
+                      </div>
+                      <p className="text-xs leading-5 text-white/75">{scene.copy}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/55">
+                          {sceneLayoutLabel[scene.layout] ?? scene.layout}
+                        </span>
+                        {scene.needsDigitalHuman && (
+                          <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2 py-0.5 text-[11px] text-fuchsia-200">
+                            数字人
+                          </span>
+                        )}
+                        {scene.visualTags.slice(0, 4).map((tag) => (
+                          <span
+                            className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-2 py-0.5 text-[11px] text-cyan-100"
+                            key={tag}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/45">
+                暂无脚本草案
+              </div>
+            )}
           </section>
 
           <section className={cardBase}>
