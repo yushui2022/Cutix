@@ -25,11 +25,12 @@
 17. 已完成控制台技术项收纳 MVP：大模型接口和数字人接入已经移入「系统设置」，主界面保留用户生产流程和状态。
 18. 已完成分镜编排预览 MVP：右侧预览不再固定为“上人下素材”，会按脚本里的 scene layout 展示全屏数字人、全屏素材、上人下素材、上素材下人等分段结构。
 19. 已完成 `videoPlan` 编排契约 MVP：`/api/script` 在兼容旧 `scenes` 的同时输出 `videoPlan`，包含全局节奏、BGM 情绪、每段画面目标、数字人位置、素材槽位、字幕策略和转场；`/api/selection` 和 `/api/render` 已开始消费该编排计划。
+20. 已完成 `videoPlan` 版本化与本地持久化 MVP：每次生成会带 `id`、`schemaVersion = cutix.video_plan.v1`、`createdAt`，并写入 `platform/data/video-plans/`，用于后续失败重试、替换素材后复用同一编排。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 把 `videoPlan` 从 MVP 投影升级为严格 JSON Schema：保存版本、兼容迁移、失败重试时可复用同一编排计划。
-2. 把 `/api/render` 从同步渲染升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态。
+1. 把 `/api/render` 从同步渲染升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态，并把 `videoPlan.id` 写入任务记录。
+2. 把 `videoPlan` 从 MVP 校验升级为严格 JSON Schema：支持版本迁移、模型输出修复和人工锁定。
 3. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
 4. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
@@ -338,6 +339,7 @@ worker_events   — Worker 日志
 - [x] IP/品牌配置 + 模板管理（3 个模板，MVP：本地 JSON 配置）
 - [x] LLM 文案生成（结构化分镜脚本 + JSON Schema 校验，MVP：本地规则兜底 + 可选大模型接口）
 - [x] `videoPlan` 编排契约（MVP：文案、分镜、布局、素材需求、数字人口播、字幕、转场统一输出）
+- [x] `videoPlan` 版本化与本地持久化（MVP：schemaVersion + plan id + data/video-plans）
 - [x] 控制台技术设置收纳（MVP：大模型接口、数字人接入隐藏到系统设置）
 - [x] 自动选材（标签规则评分，MVP：scene 槽位拆分 + 素材打分 + 前端预览）
 - [x] CosyVoice 2 TTS 集成（MVP：本地 FastAPI 适配 + Windows SAPI 兜底 + WAV/字幕时间轴）
@@ -364,7 +366,8 @@ worker_events   — Worker 日志
 - [ ] CLIP 视觉标签自动建议
 - [ ] LLM 脚本 A/B 变体
 - [x] LLM 输出统一 `videoPlan` MVP（文案、分镜、布局、素材需求、数字人口播、字幕、转场）
-- [ ] `videoPlan` JSON Schema 版本化 + 任务失败复用
+- [x] `videoPlan` JSON Schema 版本标识 + 本地保存
+- [ ] `videoPlan` 严格 Schema 校验 + 版本迁移 + 任务失败复用
 - [ ] 统计报表（生成量/成功率/素材复用率）
 
 ---

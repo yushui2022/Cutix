@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 
@@ -55,7 +56,10 @@ type VideoPlanScene = {
 };
 
 type VideoPlan = {
+  id: string;
+  schemaVersion: "cutix.video_plan.v1";
   version: 1;
+  createdAt: string;
   aspectRatio: "9:16";
   platform: string;
   totalDurationSec: number;
@@ -100,6 +104,8 @@ type ScriptRequest = {
 };
 
 const llmConfigFile = path.join(process.cwd(), "data", "llm-config.json");
+const videoPlanDir = path.join(process.cwd(), "data", "video-plans");
+const videoPlanSchemaVersion: VideoPlan["schemaVersion"] = "cutix.video_plan.v1";
 
 const defaultLlmConfig: StoredLlmConfig = {
   provider: "openai-compatible",
@@ -157,9 +163,20 @@ function materialSlotsForScene(scene: ScriptScene): VideoPlanMaterialSlot[] {
   ];
 }
 
+function sanitizeId(value: string) {
+  return value.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "plan";
+}
+
+function createVideoPlanId(script: Omit<GeneratedScript, "videoPlan">) {
+  return `vp_${sanitizeId(script.brandId)}_${sanitizeId(script.templateId)}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+}
+
 function buildVideoPlan(script: Omit<GeneratedScript, "videoPlan">, input: Required<ScriptRequest>): VideoPlan {
   return {
+    id: createVideoPlanId(script),
+    schemaVersion: videoPlanSchemaVersion,
     version: 1,
+    createdAt: new Date().toISOString(),
     aspectRatio: "9:16",
     platform: script.platform,
     totalDurationSec: script.scenes.reduce((sum, scene) => sum + scene.durationSec, 0),
@@ -191,10 +208,35 @@ function buildVideoPlan(script: Omit<GeneratedScript, "videoPlan">, input: Requi
   };
 }
 
+function validateVideoPlan(plan: VideoPlan, script: Omit<GeneratedScript, "videoPlan">) {
+  if (plan.schemaVersion !== videoPlanSchemaVersion) return false;
+  if (plan.version !== 1 || plan.aspectRatio !== "9:16") return false;
+  if (!plan.id || !plan.createdAt) return false;
+  if (plan.platform !== script.platform) return false;
+  if (plan.scenes.length !== script.scenes.length) return false;
+
+  return script.scenes.every((scene, index) => {
+    const planned = plan.scenes[index];
+    return Boolean(planned)
+      && planned.id === scene.id
+      && planned.layout === scene.layout
+      && planned.role === scene.role
+      && planned.durationSec === scene.durationSec
+      && planned.digitalHuman.enabled === scene.needsDigitalHuman
+      && typeof planned.visualGoal === "string"
+      && Array.isArray(planned.materialSlots);
+  });
+}
+
 function attachVideoPlan(script: Omit<GeneratedScript, "videoPlan">, input: Required<ScriptRequest>): GeneratedScript {
+  const videoPlan = buildVideoPlan(script, input);
+  if (!validateVideoPlan(videoPlan, script)) {
+    throw new Error("videoPlan failed internal schema validation");
+  }
+
   return {
     ...script,
-    videoPlan: buildVideoPlan(script, input),
+    videoPlan,
   };
 }
 
@@ -396,19 +438,40 @@ async function callLlm(input: Required<ScriptRequest>) {
   return script;
 }
 
+async function persistVideoPlan(
+  source: "local-rules" | "llm" | "local-fallback",
+  script: GeneratedScript,
+  llmError?: string,
+) {
+  await fs.mkdir(videoPlanDir, { recursive: true });
+  await fs.writeFile(
+    path.join(videoPlanDir, `${script.videoPlan.id}.json`),
+    JSON.stringify({
+      source,
+      llmError,
+      savedAt: new Date().toISOString(),
+      script,
+    }, null, 2),
+    "utf8",
+  );
+}
+
 export async function POST(request: NextRequest) {
   const input = normalizeRequest(await request.json());
   const fallback = localScript(input);
 
   if (!input.useLlm) {
+    await persistVideoPlan("local-rules", fallback);
     return Response.json({ source: "local-rules", script: fallback });
   }
 
   try {
     const script = await callLlm(input);
+    await persistVideoPlan("llm", script);
     return Response.json({ source: "llm", script });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown LLM error";
+    await persistVideoPlan("local-fallback", fallback, message);
     return Response.json({ source: "local-fallback", llmError: message, script: fallback });
   }
 }

@@ -130,7 +130,10 @@ type VideoPlanScene = {
 };
 
 type VideoPlan = {
+  id: string;
+  schemaVersion: string;
   version: number;
+  createdAt: string;
   aspectRatio: string;
   platform: string;
   totalDurationSec: number;
@@ -1900,6 +1903,16 @@ export default function Home() {
                     <span className="rounded-full bg-white/5 px-2 py-1">{scriptPreview.platform}</span>
                     <span className="rounded-full bg-white/5 px-2 py-1">{scriptPreview.scenes.length} 个分镜</span>
                     <span className="rounded-full bg-white/5 px-2 py-1">{scriptPreview.cta}</span>
+                    {scriptPreview.videoPlan && (
+                      <>
+                        <span className="rounded-full border border-emerald-300/15 bg-emerald-300/10 px-2 py-1 text-emerald-100">
+                          编排已锁定
+                        </span>
+                        <span className="rounded-full bg-white/5 px-2 py-1">
+                          {scriptPreview.videoPlan.totalDurationSec}s
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
 
