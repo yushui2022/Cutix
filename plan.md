@@ -20,13 +20,13 @@
 12. 已完成数字人片段生成 MVP：`/api/digital-human` 支持 MuseTalk CLI 适配器和本地 FFmpeg 占位片段兜底，前端可按 TTS 分镜生成并预览数字人片段。
 13. 已完成 FFmpeg 抠绿 + alpha 通道 MVP：数字人源片保留为 MP4，同时用 chromakey 转出 VP9 WebM 透明通道片段，供后续 Remotion 同屏合成使用。
 14. 已完成 Remotion 模板合成 MVP：`/api/render` 会把脚本、选材、TTS 音频和数字人 alpha 组装为 Timeline，并渲染数字人 + B-roll + 字幕的 9:16 成片。
+15. 已完成 FFmpeg 后处理 MVP：成片会标准化为 H.264/AAC MP4，同时生成封面 JPG 和低清预览 MP4，前端可预览并下载正式成片。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 增加 FFmpeg 后处理：H.264/AAC 标准化、封面、低清预览和响度归一化。
-2. 把 `/api/render` 从同步渲染升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态。
-3. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
-4. 增加 IP/品牌、标签体系、模板包的后台管理页面。
+1. 把 `/api/render` 从同步渲染升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态。
+2. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
+3. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
 ## 1. 产品形态
 
@@ -339,8 +339,8 @@ worker_events   — Worker 日志
 - [x] MuseTalk 数字人集成（单角色，MVP：统一 `/api/digital-human` 接口 + MuseTalk CLI 适配器 + FFmpeg 占位兜底）
 - [x] FFmpeg 抠绿 + alpha 通道（MVP：chromakey + VP9 WebM 透明通道 + 源片 MP4 保留）
 - [x] Remotion 模板合成（MVP：数字人 alpha + B-roll + TTS 音频 + 字幕 Timeline）
-- [ ] FFmpeg 后处理（H.264/AAC + 封面 + 低清预览）
-- [ ] 成品下载
+- [x] FFmpeg 后处理（MVP：H.264/AAC + 封面 + 低清预览 + loudnorm）
+- [x] 成品下载（MVP：结果预览 + 正式 MP4 下载）
 
 ### 第二期：批量生产
 

@@ -359,6 +359,8 @@ export default function Home() {
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
   const [resultUrl, setResultUrl] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [coverUrl, setCoverUrl] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -778,6 +780,8 @@ export default function Home() {
       if (typeof data !== "object" || data === null) return;
       if ("status" in data && typeof data.status === "string") setStatus(data.status);
       if ("resultUrl" in data && typeof data.resultUrl === "string") setResultUrl(data.resultUrl);
+      if ("previewUrl" in data && typeof data.previewUrl === "string") setPreviewUrl(data.previewUrl);
+      if ("coverUrl" in data && typeof data.coverUrl === "string") setCoverUrl(data.coverUrl);
     } catch {
       // Ignore incomplete stream chunks; the next chunk will carry the remainder.
     }
@@ -792,6 +796,8 @@ export default function Home() {
     setGenerating(true);
     setStatus("正在组装成片 Timeline...");
     setResultUrl("");
+    setPreviewUrl("");
+    setCoverUrl("");
 
     try {
       const res = await fetch("/api/render", {
@@ -1847,6 +1853,8 @@ export default function Home() {
                 onClick={() => {
                   setStatus("待生成");
                   setResultUrl("");
+                  setPreviewUrl("");
+                  setCoverUrl("");
                 }}
                 type="button"
               >
@@ -1865,7 +1873,8 @@ export default function Home() {
               <video
                 className="mx-auto aspect-[9/16] w-full max-w-[240px] rounded-xl bg-black shadow-lg"
                 controls
-                src={resultUrl}
+                poster={coverUrl || undefined}
+                src={previewUrl || resultUrl}
               />
               <a
                 className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-white/90 hover:bg-white/[0.07] transition"

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { bundle } from "@remotion/bundler";
 import { getCompositions, renderMedia } from "@remotion/renderer";
+import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -293,6 +294,141 @@ async function renderRemotion(props: RenderProps, outputPath: string) {
   });
 }
 
+function getFfmpegCommand() {
+  const configured = process.env.FFMPEG_PATH;
+  if (configured && fs.existsSync(configured)) return configured;
+
+  const exe = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+  const staticBinary = path.join(process.cwd(), "node_modules", "ffmpeg-static", exe);
+  if (fs.existsSync(staticBinary)) return staticBinary;
+
+  return "ffmpeg";
+}
+
+function runCommand(command: string, args: string[]) {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      shell: false,
+      windowsHide: true,
+      timeout: 5 * 60 * 1000,
+    });
+
+    let lastOutput = "";
+    const appendOutput = (chunk: Buffer) => {
+      lastOutput = `${lastOutput}${chunk.toString()}`.slice(-2000);
+    };
+
+    child.stdout?.on("data", appendOutput);
+    child.stderr?.on("data", appendOutput);
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} exit ${code}: ${lastOutput}`));
+    });
+  });
+}
+
+function inspectMedia(command: string, inputPath: string) {
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(command, ["-hide_banner", "-i", inputPath], {
+      cwd: process.cwd(),
+      shell: false,
+      windowsHide: true,
+    });
+
+    let output = "";
+    const appendOutput = (chunk: Buffer) => {
+      output = `${output}${chunk.toString()}`.slice(-6000);
+    };
+
+    child.stdout?.on("data", appendOutput);
+    child.stderr?.on("data", appendOutput);
+    child.on("error", reject);
+    child.on("close", () => resolve(output));
+  });
+}
+
+async function postProcessVideo(inputPath: string, outputId: string) {
+  const ffmpeg = getFfmpegCommand();
+  const publicDir = path.join(process.cwd(), "public", "output");
+  const coverDir = path.join(publicDir, "covers");
+  const previewDir = path.join(publicDir, "previews");
+  fs.mkdirSync(coverDir, { recursive: true });
+  fs.mkdirSync(previewDir, { recursive: true });
+
+  const finalPath = path.join(publicDir, `${outputId}.mp4`);
+  const coverPath = path.join(coverDir, `${outputId}.jpg`);
+  const previewPath = path.join(previewDir, `${outputId}_preview.mp4`);
+  const info = await inspectMedia(ffmpeg, inputPath);
+  const hasAudio = info.includes("Audio:");
+  const finalArgs = [
+    "-y",
+    "-i",
+    inputPath,
+    "-vf",
+    "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "20",
+  ];
+
+  if (hasAudio) {
+    finalArgs.push("-af", "loudnorm=I=-16:LRA=11:TP=-1.5", "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "160k");
+  } else {
+    finalArgs.push("-an");
+  }
+
+  finalArgs.push("-movflags", "+faststart", finalPath);
+  await runCommand(ffmpeg, finalArgs);
+
+  const previewArgs = [
+    "-y",
+    "-i",
+    finalPath,
+    "-vf",
+    "scale=360:640:force_original_aspect_ratio=decrease,pad=360:640:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "28",
+  ];
+
+  if (hasAudio) {
+    previewArgs.push("-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "64k");
+  } else {
+    previewArgs.push("-an");
+  }
+
+  previewArgs.push("-movflags", "+faststart", previewPath);
+  await runCommand(ffmpeg, previewArgs);
+
+  await runCommand(ffmpeg, [
+    "-y",
+    "-ss",
+    "1",
+    "-i",
+    finalPath,
+    "-frames:v",
+    "1",
+    "-q:v",
+    "2",
+    coverPath,
+  ]);
+
+  return {
+    resultUrl: `/output/${outputId}.mp4`,
+    previewUrl: `/output/previews/${outputId}_preview.mp4`,
+    coverUrl: `/output/covers/${outputId}.jpg`,
+    hasAudio,
+  };
+}
+
 export async function POST(request: NextRequest) {
   const body: unknown = await request.json();
   const data = typeof body === "object" && body !== null ? body as RenderRequest : {};
@@ -320,12 +456,18 @@ export async function POST(request: NextRequest) {
 
         await renderRemotion(timeline, outputFile);
 
-        const publicDir = path.join(process.cwd(), "public", "output");
-        fs.mkdirSync(publicDir, { recursive: true });
-        const publicFile = path.join(publicDir, `${outputId}.mp4`);
-        fs.copyFileSync(outputFile, publicFile);
+        send({ status: "FFmpeg 后处理中：标准化、封面、低清预览..." });
+        const postProcessed = await postProcessVideo(outputFile, outputId);
+        fs.rmSync(outputFile, { force: true });
 
-        send({ status: "完成！", resultUrl: `/output/${outputId}.mp4`, scenes: timeline.scenes.length });
+        send({
+          status: "完成！",
+          resultUrl: postProcessed.resultUrl,
+          previewUrl: postProcessed.previewUrl,
+          coverUrl: postProcessed.coverUrl,
+          hasAudio: postProcessed.hasAudio,
+          scenes: timeline.scenes.length,
+        });
       } catch (error: unknown) {
         console.error("Render error:", error);
         const message = error instanceof Error ? error.message : "Unknown render error";
