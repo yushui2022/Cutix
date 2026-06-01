@@ -134,6 +134,32 @@ type AssetSelectionPreview = {
   };
 };
 
+type TtsWord = {
+  text: string;
+  startMs: number;
+  endMs: number;
+};
+
+type TtsClip = {
+  sceneId: string;
+  role: string;
+  layout: string;
+  copy: string;
+  audioUrl: string;
+  durationMs: number;
+  source: string;
+  fallbackReason?: string;
+  words: TtsWord[];
+};
+
+type TtsPreview = {
+  jobId: string;
+  provider: string;
+  voiceId: string;
+  clips: TtsClip[];
+  totalDurationMs: number;
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
@@ -261,6 +287,10 @@ const sceneLayoutLabel: Record<string, string> = {
   full_broll: "全屏素材",
 };
 
+function formatDuration(ms: number) {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [ips, setIps] = useState<IP[]>(seedIps);
@@ -283,6 +313,8 @@ export default function Home() {
   const [scriptPreview, setScriptPreview] = useState<GeneratedScript | null>(null);
   const [selectingAssets, setSelectingAssets] = useState(false);
   const [selectionPreview, setSelectionPreview] = useState<AssetSelectionPreview | null>(null);
+  const [ttsGenerating, setTtsGenerating] = useState(false);
+  const [ttsPreview, setTtsPreview] = useState<TtsPreview | null>(null);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
@@ -579,6 +611,7 @@ export default function Home() {
       setScriptPreview(payload.script);
       setScriptSource(payload.source);
       setSelectionPreview(null);
+      setTtsPreview(null);
       setStatus(payload.llmError ? `脚本已生成，本地兜底：${payload.llmError}` : "结构化分镜脚本已生成");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
@@ -620,6 +653,39 @@ export default function Home() {
       setStatus("自动选材失败: " + message);
     } finally {
       setSelectingAssets(false);
+    }
+  };
+
+  const handleGenerateTts = async () => {
+    if (!scriptPreview) {
+      setStatus("请先生成结构化分镜脚本");
+      return;
+    }
+
+    setTtsGenerating(true);
+    setStatus("正在本地合成语音...");
+
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script: scriptPreview,
+          provider: "auto",
+          voiceId: "中文女",
+          speed: 1,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as TtsPreview;
+      setTtsPreview(payload);
+      setStatus(`语音合成完成：${payload.clips.length} 段，${formatDuration(payload.totalDurationMs)}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("语音合成失败: " + message);
+    } finally {
+      setTtsGenerating(false);
     }
   };
 
@@ -1514,6 +1580,64 @@ export default function Home() {
             ) : (
               <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/45">
                 暂无选材方案
+              </div>
+            )}
+          </section>
+
+          <section className={cardBase}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-wider text-white/40">Voice</div>
+                <h2 className="mt-1 text-base font-semibold text-white">语音合成</h2>
+                <p className="mt-0.5 text-xs text-white/50">
+                  {ttsPreview ? `${ttsPreview.clips.length} 段 · ${formatDuration(ttsPreview.totalDurationMs)}` : "等待脚本"}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-2.5 py-1 text-xs font-semibold text-fuchsia-100">
+                {ttsPreview?.provider ?? "TTS"}
+              </span>
+            </div>
+
+            <button
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/85 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={ttsGenerating || !scriptPreview}
+              onClick={handleGenerateTts}
+              type="button"
+            >
+              <Activity className="h-4 w-4" />
+              {ttsGenerating ? "合成中..." : "本地合成语音"}
+            </button>
+
+            {ttsPreview ? (
+              <div className="mt-4 max-h-[460px] space-y-2 overflow-y-auto pr-1">
+                {ttsPreview.clips.map((clip, index) => (
+                  <div className="rounded-xl border border-white/8 bg-black/20 p-3" key={clip.sceneId}>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-white">
+                        {index + 1}. {sceneRoleLabel[clip.role] ?? clip.role}
+                      </span>
+                      <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-white/50">
+                        {formatDuration(clip.durationMs)}
+                      </span>
+                    </div>
+                    <p className="line-clamp-2 text-xs leading-5 text-white/70">{clip.copy}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                      <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-white/45">
+                        {clip.words.length} 字幕块
+                      </span>
+                      {clip.fallbackReason && (
+                        <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-amber-100">
+                          本地兜底
+                        </span>
+                      )}
+                    </div>
+                    <audio className="mt-3 h-8 w-full" controls src={clip.audioUrl} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/45">
+                暂无语音片段
               </div>
             )}
           </section>

@@ -16,6 +16,7 @@
 8. 已完成基础 Remotion 渲染 API：`/api/render` 会根据 IP 生成脚本并调用 Remotion 输出 MP4。
 9. 已完成结构化分镜脚本生成 MVP：`/api/script` 支持本地规则兜底和 OpenAI-compatible 大模型接口，前端可预览 scene、布局、数字人需求和素材标签。
 10. 已完成自动选材 MVP：`/api/selection` 会按分镜标签、布局、数字人槽位、B-roll 槽位和 BGM 对素材库打分，前端可预览匹配结果并同步选中素材。
+11. 已完成 TTS 适配 MVP：`/api/tts` 支持本地 CosyVoice FastAPI 适配（`COSYVOICE_FASTAPI_URL`）和 Windows SAPI 兜底，输出 WAV、音频 URL 和字幕时间轴。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -332,7 +333,7 @@ worker_events   — Worker 日志
 - [x] IP/品牌配置 + 模板管理（3 个模板，MVP：本地 JSON 配置）
 - [x] LLM 文案生成（结构化分镜脚本 + JSON Schema 校验，MVP：本地规则兜底 + 可选大模型接口）
 - [x] 自动选材（标签规则评分，MVP：scene 槽位拆分 + 素材打分 + 前端预览）
-- [ ] CosyVoice 2 TTS 集成
+- [x] CosyVoice 2 TTS 集成（MVP：本地 FastAPI 适配 + Windows SAPI 兜底 + WAV/字幕时间轴）
 - [ ] MuseTalk 数字人集成（单角色）
 - [ ] FFmpeg 抠绿 + alpha 通道
 - [ ] Remotion 模板合成（数字人 PIP + B-roll + 字幕叠加）
