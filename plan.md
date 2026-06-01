@@ -10,7 +10,8 @@
 2. 已完成本地素材上传入口：`/api/assets` 支持多文件上传，文件保存到 `platform/public/uploads/`。
 3. 已完成素材元数据持久化：上传后的素材写入 `platform/data/assets.json`，前端刷新后会自动加载。
 4. 已完成基础自动打标签：根据文件名、MIME 类型和关键词生成门店、人流、产品、招商、口播、BGM 等初始标签。
-5. 已完成基础 Remotion 渲染 API：`/api/render` 会根据 IP 生成脚本并调用 Remotion 输出 MP4。
+5. 已完成素材库 MVP 复核能力：视频缩略图、图片预览、标签编辑、启用/禁用。
+6. 已完成基础 Remotion 渲染 API：`/api/render` 会根据 IP 生成脚本并调用 Remotion 输出 MP4。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -323,7 +324,7 @@ worker_events   — Worker 日志
 ### 第一期：闭环验证（跑通一条视频）
 
 - [ ] 平台工程搭建（Next.js/NestJS + PostgreSQL + Redis + MinIO + Docker）
-- [ ] 素材上传 + 缩略图自动生成 + 人工标签
+- [x] 素材上传 + 缩略图自动生成 + 人工标签（MVP：本地文件 + 本地 JSON）
 - [ ] IP/品牌配置 + 模板管理（3 个模板）
 - [ ] LLM 文案生成（结构化分镜脚本 + JSON Schema 校验）
 - [ ] 自动选材（标签规则评分）

@@ -41,6 +41,11 @@ type Asset = {
   color: string;
   source: string;
   matchScore: number;
+  url?: string;
+  thumbnailUrl?: string;
+  fileName?: string;
+  size?: number;
+  uploadedAt?: string;
 };
 
 type Template = {
@@ -217,6 +222,8 @@ export default function Home() {
   const [count, setCount] = useState(6);
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
   const [resultUrl, setResultUrl] = useState("");
 
@@ -251,6 +258,9 @@ export default function Home() {
   }, [generating, status]);
 
   const toggleAsset = (assetId: string) => {
+    const asset = assets.find((item) => item.id === assetId);
+    if (asset?.status === "disabled") return;
+
     setSelectedAssets((current) =>
       current.includes(assetId)
         ? current.filter((id) => id !== assetId)
@@ -292,6 +302,57 @@ export default function Home() {
       setUploading(false);
       event.target.value = "";
     }
+  };
+
+  const updateAssetState = (asset: Asset) => {
+    setAssets((current) => current.map((item) => (item.id === asset.id ? asset : item)));
+  };
+
+  const patchAsset = async (asset: Asset, patch: Partial<Pick<Asset, "status" | "tags">>) => {
+    const optimisticAsset = { ...asset, ...patch };
+    updateAssetState(optimisticAsset);
+
+    if (!asset.uploadedAt) return;
+
+    try {
+      const res = await fetch("/api/assets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: asset.id, ...patch }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const payload: { asset?: Asset } = await res.json();
+      if (payload.asset) updateAssetState(payload.asset);
+    } catch (error: unknown) {
+      updateAssetState(asset);
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("素材更新失败: " + message);
+    }
+  };
+
+  const startEditingTags = (asset: Asset) => {
+    setEditingAssetId(asset.id);
+    setTagDraft(asset.tags.join("，"));
+  };
+
+  const saveTags = async (asset: Asset) => {
+    const tags = tagDraft
+      .split(/[,\s，、]+/u)
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+
+    await patchAsset(asset, { tags });
+    setEditingAssetId(null);
+    setStatus(`已更新「${asset.name}」标签`);
+  };
+
+  const toggleAssetEnabled = async (asset: Asset) => {
+    const nextStatus = asset.status === "disabled" ? "review" : "disabled";
+    if (nextStatus === "disabled") {
+      setSelectedAssets((current) => current.filter((id) => id !== asset.id));
+    }
+    await patchAsset(asset, { status: nextStatus });
   };
 
   const processEventLine = (line: string) => {
@@ -580,54 +641,106 @@ export default function Home() {
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               {assets.map((asset) => {
                 const selected = selectedAssets.includes(asset.id);
+                const editing = editingAssetId === asset.id;
                 return (
-                  <button
+                  <div
                     className={`${optionBase} ${selected ? "ring-selected" : ""}`}
                     key={asset.id}
-                    onClick={() => toggleAsset(asset.id)}
-                    type="button"
                   >
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div
-                        className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white shadow-lg"
-                        style={{ background: `linear-gradient(135deg, ${asset.color}, #1a1a2e)` }}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-                        {asset.type === "avatar" ? (
-                          <UserRound className="relative h-6 w-6" />
-                        ) : (
-                          <Clapperboard className="relative h-6 w-6" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium text-white">{asset.name}</div>
-                            <div className="mt-0.5 text-xs text-white/45">{asset.source}</div>
-                          </div>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusStyle[asset.status]}`}>
-                            {statusLabel[asset.status]}
-                          </span>
+                    <button className="w-full text-left" onClick={() => toggleAsset(asset.id)} type="button">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div
+                          className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl text-white shadow-lg"
+                          style={{ background: `linear-gradient(135deg, ${asset.color}, #1a1a2e)` }}
+                        >
+                          {asset.thumbnailUrl ? (
+                            <img alt="" className="h-full w-full object-cover" src={asset.thumbnailUrl} />
+                          ) : (
+                            <>
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                              {asset.type === "avatar" ? (
+                                <UserRound className="relative h-6 w-6" />
+                              ) : (
+                                <Clapperboard className="relative h-6 w-6" />
+                              )}
+                            </>
+                          )}
+                          {asset.status === "disabled" && <div className="absolute inset-0 bg-black/60" />}
                         </div>
-                        <div className="mt-2 text-xs text-white/50">
-                          {typeLabel[asset.type]} · {asset.orientation} · {asset.duration}
-                          <span className="ml-2 inline-flex items-center gap-1 rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] text-white/70">
-                            匹配 {asset.matchScore}
-                          </span>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {asset.tags.map((tag) => (
-                            <span
-                              className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/60"
-                              key={tag}
-                            >
-                              {tag}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-white">{asset.name}</div>
+                              <div className="mt-0.5 text-xs text-white/45">{asset.source}</div>
+                            </div>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusStyle[asset.status]}`}>
+                              {statusLabel[asset.status]}
                             </span>
-                          ))}
+                          </div>
+                          <div className="mt-2 text-xs text-white/50">
+                            {typeLabel[asset.type]} · {asset.orientation} · {asset.duration}
+                            <span className="ml-2 inline-flex items-center gap-1 rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] text-white/70">
+                              匹配 {asset.matchScore}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {asset.tags.map((tag) => (
+                              <span
+                                className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/60"
+                                key={tag}
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
+
+                    {editing ? (
+                      <div className="mt-3 border-t border-white/8 pt-3">
+                        <input
+                          className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white outline-none focus:border-[#ff3b5c]/60"
+                          onChange={(event) => setTagDraft(event.target.value)}
+                          placeholder="用逗号分隔标签"
+                          value={tagDraft}
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            className="rounded-lg bg-[#ff3b5c] px-3 py-1.5 text-xs font-semibold text-white"
+                            onClick={() => saveTags(asset)}
+                            type="button"
+                          >
+                            保存标签
+                          </button>
+                          <button
+                            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/70"
+                            onClick={() => setEditingAssetId(null)}
+                            type="button"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-white/8 pt-3">
+                        <button
+                          className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/[0.06]"
+                          onClick={() => startEditingTags(asset)}
+                          type="button"
+                        >
+                          编辑标签
+                        </button>
+                        <button
+                          className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/[0.06]"
+                          onClick={() => toggleAssetEnabled(asset)}
+                          type="button"
+                        >
+                          {asset.status === "disabled" ? "启用素材" : "禁用素材"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
