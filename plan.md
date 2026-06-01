@@ -19,11 +19,12 @@
 11. 已完成 TTS 适配 MVP：`/api/tts` 支持本地 CosyVoice FastAPI 适配（`COSYVOICE_FASTAPI_URL`）和 Windows SAPI 兜底，输出 WAV、音频 URL 和字幕时间轴。
 12. 已完成数字人片段生成 MVP：`/api/digital-human` 支持 MuseTalk CLI 适配器和本地 FFmpeg 占位片段兜底，前端可按 TTS 分镜生成并预览数字人片段。
 13. 已完成 FFmpeg 抠绿 + alpha 通道 MVP：数字人源片保留为 MP4，同时用 chromakey 转出 VP9 WebM 透明通道片段，供后续 Remotion 同屏合成使用。
+14. 已完成 Remotion 模板合成 MVP：`/api/render` 会把脚本、选材、TTS 音频和数字人 alpha 组装为 Timeline，并渲染数字人 + B-roll + 字幕的 9:16 成片。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 把 Remotion 模板合成升级为真实 Timeline：数字人 PIP、B-roll、字幕、品牌元素同屏组合。
-2. 把 `/api/render` 从示例脚本升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态。
+1. 增加 FFmpeg 后处理：H.264/AAC 标准化、封面、低清预览和响度归一化。
+2. 把 `/api/render` 从同步渲染升级为任务队列：创建任务、后台 Worker 渲染、前端轮询/订阅状态。
 3. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
 4. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
@@ -337,7 +338,7 @@ worker_events   — Worker 日志
 - [x] CosyVoice 2 TTS 集成（MVP：本地 FastAPI 适配 + Windows SAPI 兜底 + WAV/字幕时间轴）
 - [x] MuseTalk 数字人集成（单角色，MVP：统一 `/api/digital-human` 接口 + MuseTalk CLI 适配器 + FFmpeg 占位兜底）
 - [x] FFmpeg 抠绿 + alpha 通道（MVP：chromakey + VP9 WebM 透明通道 + 源片 MP4 保留）
-- [ ] Remotion 模板合成（数字人 PIP + B-roll + 字幕叠加）
+- [x] Remotion 模板合成（MVP：数字人 alpha + B-roll + TTS 音频 + 字幕 Timeline）
 - [ ] FFmpeg 后处理（H.264/AAC + 封面 + 低清预览）
 - [ ] 成品下载
 

@@ -784,8 +784,13 @@ export default function Home() {
   };
 
   const handleGenerate = async () => {
+    if (!scriptPreview || !ttsPreview || !digitalHumanPreview) {
+      setStatus("请先完成分镜脚本、语音合成和数字人片段");
+      return;
+    }
+
     setGenerating(true);
-    setStatus("正在生成文案...");
+    setStatus("正在组装成片 Timeline...");
     setResultUrl("");
 
     try {
@@ -794,6 +799,12 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ipId: selectedIP.id,
+          brand: selectedIP,
+          template: selectedTemplate,
+          script: scriptPreview,
+          selection: selectionPreview,
+          tts: ttsPreview,
+          digitalHuman: digitalHumanPreview,
           templateId: selectedTemplate.id,
           assetIds: selectedAssets,
           targetPlatform,

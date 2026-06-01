@@ -1,42 +1,191 @@
 import { NextRequest } from "next/server";
-import { spawn } from "child_process";
+import { bundle } from "@remotion/bundler";
+import { getCompositions, renderMedia } from "@remotion/renderer";
 import path from "path";
 import fs from "fs";
 import os from "os";
 
-// IP configs — in production from DB
-const ipConfigs: Record<string, {
+type SceneLayout = "full_dh" | "dh_top_broll_bottom" | "broll_top_dh_bottom" | "full_broll";
+
+type BrandInput = {
+  id?: string;
+  name?: string;
+  color?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  logoText?: string;
+};
+
+type ScriptScene = {
+  id: string;
+  role: string;
+  layout: string;
+  durationSec: number;
+  copy: string;
+  needsDigitalHuman?: boolean;
+};
+
+type GeneratedScript = {
+  title?: string;
+  platform?: string;
+  scenes: ScriptScene[];
+  cta?: string;
+};
+
+type SelectionAsset = {
+  id: string;
   name: string;
-  primaryColor: string;
-  secondaryColor: string;
-  logoText: string;
-}> = {
+  type: "video" | "image" | "audio" | "avatar";
+  url?: string;
+};
+
+type SlotSelection = {
+  slot: string;
+  primaryAsset: SelectionAsset | null;
+};
+
+type SceneSelectionPreview = {
+  sceneId: string;
+  slots: SlotSelection[];
+};
+
+type AssetSelectionPreview = {
+  selections: SceneSelectionPreview[];
+  global?: {
+    bgm?: SelectionAsset | null;
+  };
+};
+
+type TtsWord = {
+  text: string;
+  startMs: number;
+  endMs: number;
+};
+
+type TtsClip = {
+  sceneId: string;
+  audioUrl: string;
+  durationMs: number;
+  words: TtsWord[];
+};
+
+type TtsPreview = {
+  clips: TtsClip[];
+};
+
+type DigitalHumanClip = {
+  sceneId: string;
+  videoUrl: string;
+  alphaVideoUrl?: string;
+  durationMs: number;
+  alpha?: boolean;
+};
+
+type DigitalHumanPreview = {
+  clips: DigitalHumanClip[];
+};
+
+type TimelineScene = {
+  id: string;
+  role: string;
+  layout: SceneLayout;
+  startSec: number;
+  durationSec: number;
+  digitalHumanVideo?: string;
+  brollVideo?: string;
+  brollImages?: string[];
+  audioUrl?: string;
+  subtitleWords: TtsWord[];
+  overlayText?: string;
+};
+
+type RenderProps = {
+  brand: {
+    name: string;
+    primaryColor: string;
+    secondaryColor: string;
+    logoText: string;
+  };
+  scenes: TimelineScene[];
+  bgmUrl?: string;
+};
+
+type RenderRequest = {
+  ipId?: string;
+  brand?: BrandInput;
+  script?: GeneratedScript;
+  selection?: AssetSelectionPreview | null;
+  tts?: TtsPreview | null;
+  digitalHuman?: DigitalHumanPreview | null;
+};
+
+const ipConfigs: Record<string, RenderProps["brand"]> = {
   wang: { name: "老王餐饮", primaryColor: "#E7333F", secondaryColor: "#1A1A2E", logoText: "老王餐饮" },
   li: { name: "李总商业", primaryColor: "#3B82F6", secondaryColor: "#0F172A", logoText: "李总商业" },
   zhang: { name: "张姐美妆", primaryColor: "#EC4899", secondaryColor: "#1C0F1A", logoText: "张姐美妆" },
 };
 
-function words(text: string, offsetMs = 0) {
-  const msPerChar = 200; // ~5 chars/sec
-  const total = text.length * msPerChar;
-  const result: { text: string; startMs: number; endMs: number }[] = [];
-  let pos = 0;
-  while (pos < text.length) {
-    const size = Math.min(pos % 5 === 0 ? 3 : 2, text.length - pos);
-    result.push({
-      text: text.slice(pos, pos + size),
-      startMs: offsetMs + (pos / text.length) * total,
-      endMs: offsetMs + ((pos + size) / text.length) * total,
-    });
-    pos += size;
+let remotionServeUrl: Promise<string> | null = null;
+
+function subtitleWords(text: string, durationMs: number) {
+  const cleaned = text.replace(/\s+/g, "");
+  const pieces: string[] = [];
+  let index = 0;
+
+  while (index < cleaned.length) {
+    const char = cleaned[index];
+    if (/[\p{P}\p{S}]/u.test(char)) {
+      pieces.push(char);
+      index += 1;
+    } else {
+      const size = /[a-z0-9]/i.test(char) ? 6 : 3;
+      pieces.push(cleaned.slice(index, Math.min(index + size, cleaned.length)));
+      index += size;
+    }
   }
-  return { words: result, totalMs: total };
+
+  const totalWeight = pieces.reduce((sum, word) => sum + Math.max(1, word.length), 0) || 1;
+  let cursor = 0;
+  return pieces.map((word) => {
+    const wordDuration = Math.max(120, Math.round((durationMs * Math.max(1, word.length)) / totalWeight));
+    const startMs = cursor;
+    cursor = Math.min(durationMs, cursor + wordDuration);
+    return { text: word, startMs, endMs: cursor };
+  });
 }
 
-function buildScript(ipId: string) {
-  const ip = ipConfigs[ipId];
-  if (!ip) throw new Error("Unknown IP");
+function normalizeLayout(layout: string): SceneLayout {
+  if (
+    layout === "full_dh"
+    || layout === "dh_top_broll_bottom"
+    || layout === "broll_top_dh_bottom"
+    || layout === "full_broll"
+  ) {
+    return layout;
+  }
+  return "full_broll";
+}
 
+function brandFromRequest(ipId: string, brand?: BrandInput): RenderProps["brand"] {
+  const fallback = ipConfigs[ipId] ?? ipConfigs.wang;
+  return {
+    name: brand?.name || fallback.name,
+    primaryColor: brand?.primaryColor || brand?.color || fallback.primaryColor,
+    secondaryColor: brand?.secondaryColor || fallback.secondaryColor,
+    logoText: brand?.logoText || brand?.name || fallback.logoText,
+  };
+}
+
+function pickBroll(sceneSelection: SceneSelectionPreview | undefined) {
+  const asset = sceneSelection?.slots.find((slot) => slot.slot === "broll")?.primaryAsset;
+  if (!asset?.url) return {};
+  if (asset.type === "video") return { brollVideo: asset.url };
+  if (asset.type === "image") return { brollImages: [asset.url] };
+  return {};
+}
+
+function buildLegacyScript(ipId: string): RenderProps {
+  const brand = brandFromRequest(ipId);
   const scripts: Record<string, [string, string, string, string]> = {
     wang: [
       "普通餐饮门店如何在一个月内提升三倍转化？我是老王，做了十二年餐饮，今天说点实话。",
@@ -57,85 +206,126 @@ function buildScript(ipId: string) {
       "评论区扣「品牌」，我把这份品牌溢价方法论完整版发给你。先到先得！",
     ],
   };
-
   const s = scripts[ipId] || scripts.wang;
-  const hook = words(s[0]);
-  const pain = words(s[1]);
-  const cta = words(s[3]);
 
   return {
-    brand: { name: ip.name, primaryColor: ip.primaryColor, secondaryColor: ip.secondaryColor, logoText: ip.logoText },
+    brand,
     scenes: [
-      { layout: "full_dh", startSec: 0, durationSec: 5, subtitleWords: hook.words },
-      { layout: "dh_top_broll_bottom", startSec: 5, durationSec: 10, subtitleWords: pain.words },
-      { layout: "full_broll", startSec: 15, durationSec: 8, subtitleWords: [{ text: s[2], startMs: 0, endMs: 8000 }], overlayText: s[2] },
-      { layout: "full_dh", startSec: 23, durationSec: 7, subtitleWords: cta.words },
+      { id: "hook", role: "hook", layout: "full_dh", startSec: 0, durationSec: 5, subtitleWords: subtitleWords(s[0], 5000) },
+      { id: "pain", role: "pain", layout: "dh_top_broll_bottom", startSec: 5, durationSec: 10, subtitleWords: subtitleWords(s[1], 10000) },
+      {
+        id: "proof",
+        role: "proof",
+        layout: "full_broll",
+        startSec: 15,
+        durationSec: 8,
+        subtitleWords: [{ text: s[2], startMs: 0, endMs: 8000 }],
+        overlayText: s[2],
+      },
+      { id: "cta", role: "cta", layout: "full_dh", startSec: 23, durationSec: 7, subtitleWords: subtitleWords(s[3], 7000) },
     ],
   };
 }
 
-function runRemotionCli(props: unknown, outputPath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const propsJson = JSON.stringify(props);
-    const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-    const child = spawn(
-      npx,
-      ["remotion", "render", "SplitScreen", outputPath, `--props=${propsJson}`],
-      {
-        cwd: process.cwd(),
-        shell: false,
-        windowsHide: true,
-        timeout: 5 * 60 * 1000,
-      },
-    );
-    let lastOutput = "";
-    const appendOutput = (chunk: Buffer) => {
-      lastOutput = `${lastOutput}${chunk.toString()}`.slice(-2000);
+function buildTimeline(data: RenderRequest): RenderProps {
+  const ipId = data.ipId ?? data.brand?.id ?? "wang";
+  if (!data.script?.scenes?.length) return buildLegacyScript(ipId);
+
+  const brand = brandFromRequest(ipId, data.brand);
+  const selectionsByScene = new Map((data.selection?.selections ?? []).map((scene) => [scene.sceneId, scene]));
+  const ttsByScene = new Map((data.tts?.clips ?? []).map((clip) => [clip.sceneId, clip]));
+  const digitalHumanByScene = new Map((data.digitalHuman?.clips ?? []).map((clip) => [clip.sceneId, clip]));
+  let cursorSec = 0;
+
+  const scenes = data.script.scenes.map((scene): TimelineScene => {
+    const tts = ttsByScene.get(scene.id);
+    const digitalHuman = digitalHumanByScene.get(scene.id);
+    const plannedMs = Math.max(1000, Math.round((scene.durationSec || 4) * 1000));
+    const durationMs = Math.max(plannedMs, tts?.durationMs ?? 0, digitalHuman?.durationMs ?? 0);
+    const durationSec = Math.max(1, durationMs / 1000);
+    const layout = normalizeLayout(scene.layout);
+    const broll = pickBroll(selectionsByScene.get(scene.id));
+    const timelineScene: TimelineScene = {
+      id: scene.id,
+      role: scene.role,
+      layout,
+      startSec: cursorSec,
+      durationSec,
+      digitalHumanVideo: digitalHuman?.alphaVideoUrl || digitalHuman?.videoUrl,
+      audioUrl: tts?.audioUrl,
+      subtitleWords: tts?.words?.length ? tts.words : subtitleWords(scene.copy, durationMs),
+      overlayText: layout === "full_broll" ? scene.copy : undefined,
+      ...broll,
     };
-    child.stdout?.on("data", appendOutput);
-    child.stderr?.on("data", appendOutput);
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Remotion exit ${code}: ${lastOutput.slice(-500)}`));
+
+    cursorSec += durationSec;
+    return timelineScene;
+  });
+
+  return {
+    brand,
+    scenes,
+    bgmUrl: data.selection?.global?.bgm?.url,
+  };
+}
+
+function getRemotionServeUrl() {
+  if (!remotionServeUrl) {
+    remotionServeUrl = bundle({
+      entryPoint: path.join(process.cwd(), "src", "remotion", "index.ts"),
     });
+  }
+  return remotionServeUrl;
+}
+
+async function renderRemotion(props: RenderProps, outputPath: string) {
+  const serveUrl = await getRemotionServeUrl();
+  const compositions = await getCompositions(serveUrl, { inputProps: props });
+  const composition = compositions.find((item) => item.id === "SplitScreen");
+  if (!composition) throw new Error("SplitScreen composition not found");
+
+  await renderMedia({
+    codec: "h264",
+    composition,
+    inputProps: props,
+    outputLocation: outputPath,
+    serveUrl,
   });
 }
 
 export async function POST(request: NextRequest) {
   const body: unknown = await request.json();
-  const ipId = typeof body === "object" && body !== null && "ipId" in body
-    ? String((body as { ipId: unknown }).ipId)
-    : "";
-  if (!ipConfigs[ipId]) {
+  const data = typeof body === "object" && body !== null ? body as RenderRequest : {};
+  const ipId = data.ipId ?? data.brand?.id ?? "wang";
+
+  if (!ipConfigs[ipId] && !data.brand) {
     return Response.json({ error: "Unknown IP" }, { status: 400 });
   }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (data: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      const send = (payload: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       };
 
       try {
-        send({ status: "正在生成文案..." });
-        const script = buildScript(ipId);
+        send({ status: "正在组装 Timeline..." });
+        const timeline = buildTimeline(data);
 
-        send({ status: "Remotion 渲染中（约 30 秒）..." });
+        send({ status: `Remotion 同屏合成中：${timeline.scenes.length} 个分镜...` });
 
         const outputId = `cutix_${ipId}_${Date.now()}`;
         const outputFile = path.join(os.tmpdir(), `${outputId}.mp4`);
 
-        await runRemotionCli(script, outputFile);
+        await renderRemotion(timeline, outputFile);
 
-        // Copy to public
         const publicDir = path.join(process.cwd(), "public", "output");
         fs.mkdirSync(publicDir, { recursive: true });
         const publicFile = path.join(publicDir, `${outputId}.mp4`);
         fs.copyFileSync(outputFile, publicFile);
 
-        send({ status: "完成！", resultUrl: `/output/${outputId}.mp4` });
+        send({ status: "完成！", resultUrl: `/output/${outputId}.mp4`, scenes: timeline.scenes.length });
       } catch (error: unknown) {
         console.error("Render error:", error);
         const message = error instanceof Error ? error.message : "Unknown render error";

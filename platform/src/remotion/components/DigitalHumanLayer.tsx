@@ -1,4 +1,5 @@
 import { AbsoluteFill, Video, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
+import { mediaSrc } from "../media";
 
 export const DigitalHumanLayer: React.FC<{
   videoSrc?: string;
@@ -16,6 +17,8 @@ export const DigitalHumanLayer: React.FC<{
   );
 
   if (videoSrc) {
+    const src = mediaSrc(videoSrc) ?? videoSrc;
+
     return (
       <AbsoluteFill
         style={{
@@ -24,10 +27,10 @@ export const DigitalHumanLayer: React.FC<{
         }}
       >
         <Video
-          src={videoSrc}
+          src={src}
           loop
           volume={0}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          style={{ width: "100%", height: "100%", objectFit: "contain" }}
         />
       </AbsoluteFill>
     );

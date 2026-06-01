@@ -1,4 +1,5 @@
 import { AbsoluteFill, Img, Video, interpolate, useCurrentFrame, useVideoConfig } from "remotion";
+import { mediaSrc } from "../media";
 
 export const BrollLayer: React.FC<{
   videoSrc?: string;
@@ -14,6 +15,8 @@ export const BrollLayer: React.FC<{
     : 0;
 
   if (videoSrc) {
+    const src = mediaSrc(videoSrc) ?? videoSrc;
+
     return (
       <AbsoluteFill
         style={{
@@ -22,7 +25,7 @@ export const BrollLayer: React.FC<{
         }}
       >
         <Video
-          src={videoSrc}
+          src={src}
           loop
           volume={0}
           style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -32,6 +35,9 @@ export const BrollLayer: React.FC<{
   }
 
   if (images && images.length > 0) {
+    const imageSrc = images[imageIndex];
+    const src = mediaSrc(imageSrc) ?? imageSrc;
+
     return (
       <AbsoluteFill
         style={{
@@ -44,7 +50,7 @@ export const BrollLayer: React.FC<{
         }}
       >
         <Img
-          src={images[imageIndex]}
+          src={src}
           style={{
             width: "100%",
             height: "100%",
