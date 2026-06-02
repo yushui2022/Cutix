@@ -248,6 +248,7 @@ type DigitalHumanClip = {
 type DigitalHumanPreview = {
   jobId: string;
   provider: string;
+  productionReady?: boolean;
   alpha?: boolean;
   chromaKey?: {
     color: string;
@@ -387,14 +388,14 @@ const seedAssets: Asset[] = [
   },
   {
     id: "avatar",
-    name: "老王口播数字人",
+    name: "数字人角色占位",
     type: "avatar",
-    duration: "接口返回",
+    duration: "待接入",
     orientation: "9:16",
     tags: ["数字人", "口播", "IP"],
-    status: "ready",
+    status: "review",
     color: "#a855f7",
-    source: "数字人服务 / 已生成",
+    source: "未接生产数字人服务",
     matchScore: 100,
   },
   {
@@ -455,7 +456,7 @@ const scriptSourceLabel: Record<string, string> = {
 };
 
 const digitalHumanProviderLabel: Record<DigitalHumanProvider, string> = {
-  placeholder: "占位测试",
+  placeholder: "未接生产数字人",
   "musetalk-cli": "MuseTalk 本地",
   "http-api": "HTTP 数字人 API",
 };
@@ -1090,6 +1091,11 @@ export default function Home() {
       return;
     }
 
+    if (digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForProduction) {
+      setStatus("数字人服务信息不完整，请到系统设置补全后再生成");
+      return;
+    }
+
     setDigitalHumanGenerating(true);
     setStatus("正在生成数字人片段...");
 
@@ -1102,6 +1108,7 @@ export default function Home() {
           tts: ttsPreview,
           provider: "auto",
           alpha: true,
+          allowPlaceholder: digitalHumanConfig.provider === "placeholder",
           chromaKey: {
             color: "#00FF00",
             similarity: 0.18,
@@ -1113,8 +1120,13 @@ export default function Home() {
 
       const payload = (await res.json()) as DigitalHumanPreview;
       const alphaCount = payload.clips.filter((clip) => clip.alpha).length;
+      const placeholderCount = payload.clips.filter((clip) => clip.placeholder).length;
       setDigitalHumanPreview(payload);
-      setStatus(`数字人片段完成：${payload.clips.length} 段，透明通道 ${alphaCount} 段`);
+      setStatus(
+        placeholderCount > 0 || payload.productionReady === false
+          ? `已生成 ${placeholderCount} 段测试占位数字人；接入生产数字人后才能提交成片`
+          : `数字人片段完成：${payload.clips.length} 段，透明通道 ${alphaCount} 段`,
+      );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("数字人生成失败: " + message);
@@ -1126,6 +1138,11 @@ export default function Home() {
   const handleGenerate = async () => {
     if (!scriptPreview || !ttsPreview || !digitalHumanPreview) {
       setStatus("请先完成分镜脚本、语音合成和数字人片段");
+      return;
+    }
+
+    if (digitalHumanPreview.productionReady === false || digitalHumanPreview.clips.some((clip) => clip.placeholder)) {
+      setStatus("当前数字人仍是测试占位片段，不能提交成片；请在系统设置接入 HTTP API 或 MuseTalk 后重新生成数字人");
       return;
     }
 
@@ -1268,7 +1285,13 @@ export default function Home() {
         : "待填写生产 API"
       : digitalHumanConfig.provider === "musetalk-cli"
         ? "本地 MuseTalk"
-        : "占位测试";
+        : "未接生产数字人";
+  const digitalHumanReadyForProduction =
+    digitalHumanConfig.provider === "http-api"
+      ? Boolean(digitalHumanConfig.endpoint)
+      : digitalHumanConfig.provider === "musetalk-cli"
+        ? Boolean(digitalHumanConfig.avatarPath)
+        : false;
   const healthyWorkerCount = workerStatus?.healthyWorkers.length ?? 0;
   const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
   const storyboardScenes = scriptPreview?.videoPlan?.scenes ?? scriptPreview?.scenes ?? [];
@@ -1452,7 +1475,7 @@ export default function Home() {
                   >
                     <option className="bg-[#0a0b14]" value="http-api">HTTP 数字人 API</option>
                     <option className="bg-[#0a0b14]" value="musetalk-cli">MuseTalk 本地 CLI</option>
-                    <option className="bg-[#0a0b14]" value="placeholder">占位测试</option>
+                    <option className="bg-[#0a0b14]" value="placeholder">测试占位（不可交付）</option>
                   </select>
                 </label>
                 <label className="block text-xs font-medium text-white/60">
@@ -2445,17 +2468,30 @@ export default function Home() {
 
             <button
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/85 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={digitalHumanGenerating || !ttsPreview}
+              disabled={
+                digitalHumanGenerating
+                || !ttsPreview
+                || (digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForProduction)
+              }
               onClick={handleGenerateDigitalHuman}
               type="button"
             >
               <UserRound className="h-4 w-4" />
-              {digitalHumanGenerating ? "生成中..." : "生成数字人片段"}
+              {digitalHumanGenerating
+                ? "生成中..."
+                : digitalHumanConfig.provider === "placeholder"
+                  ? "生成测试占位片段"
+                  : "生成数字人片段"}
             </button>
 
             {digitalHumanConfig.provider === "placeholder" && (
               <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
-                当前未接生产数字人服务，系统只会生成占位片段；在系统设置中接入 HTTP API 或 MuseTalk 后才是可交付链路。
+                当前未接生产数字人服务，只能生成测试占位片段；测试片段会被禁止提交到最终成片任务。接入 HTTP API 或 MuseTalk 后才是可交付链路。
+              </div>
+            )}
+            {digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForProduction && (
+              <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+                数字人服务信息还不完整，请到系统设置补全后再生成。
               </div>
             )}
 

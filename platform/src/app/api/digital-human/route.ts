@@ -48,6 +48,7 @@ type DigitalHumanRequest = {
   provider?: "auto" | "musetalk-cli" | "placeholder" | "http-api";
   alpha?: boolean;
   chromaKey?: ChromaKeyOptions;
+  allowPlaceholder?: boolean;
 };
 
 type DigitalHumanClip = {
@@ -613,6 +614,17 @@ export async function POST(request: NextRequest) {
   const generated: DigitalHumanClip[] = [];
   const errors: Array<{ sceneId: string; message: string }> = [];
 
+  if (targetClips.length > 0 && effectiveProvider === "placeholder" && data.allowPlaceholder !== true) {
+    return Response.json(
+      {
+        error: "Production digital human provider is not configured. Placeholder generation is disabled for delivery.",
+        provider: "placeholder",
+        productionReady: false,
+      },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const addGeneratedClip = (clip: DigitalHumanClip) => {
     generated.push(clip);
     if (clip.alphaError) {
@@ -633,7 +645,7 @@ export async function POST(request: NextRequest) {
         addGeneratedClip(await createPlaceholderClip(clip, jobId, alphaEnabled, chromaKey));
       }
     } catch (error: unknown) {
-      if (requestedProvider !== "auto") throw error;
+      if (requestedProvider !== "auto" || data.allowPlaceholder !== true) throw error;
       errors.push({
         sceneId: clip.sceneId,
         message: getErrorMessage(error),
@@ -651,6 +663,7 @@ export async function POST(request: NextRequest) {
           ? "http-api"
           : "ffmpeg-placeholder",
       alpha: generated.length > 0 && generated.every((clip) => clip.alpha),
+      productionReady: generated.every((clip) => !clip.placeholder),
       chromaKey: alphaEnabled ? chromaKey : null,
       clips: generated,
       errors,
