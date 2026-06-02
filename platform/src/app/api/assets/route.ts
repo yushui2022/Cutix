@@ -13,6 +13,15 @@ type AssetType = AssetTagType;
 type Orientation = "9:16" | "16:9" | "1:1";
 type AssetStatus = "ready" | "review" | "disabled";
 
+type AssetAnalysis = {
+  status: "metadata-only" | "keyframed" | "pending";
+  keyframes: string[];
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  visionStatus: string;
+};
+
 type Asset = {
   id: string;
   name: string;
@@ -29,11 +38,19 @@ type Asset = {
   fileName?: string;
   size?: number;
   uploadedAt?: string;
+  analysis?: AssetAnalysis;
+};
+
+type MediaProbe = {
+  durationSec?: number;
+  width?: number;
+  height?: number;
 };
 
 const dataDir = path.join(process.cwd(), "data");
 const uploadsDir = path.join(process.cwd(), "public", "uploads");
 const thumbnailsDir = path.join(uploadsDir, "thumbnails");
+const keyframesDir = path.join(uploadsDir, "keyframes");
 const assetsFile = path.join(dataDir, "assets.json");
 
 function sanitizeFileName(fileName: string) {
@@ -52,9 +69,23 @@ function inferType(mime: string): AssetType {
   return "video";
 }
 
-function inferOrientation(type: AssetType): Orientation {
+function inferOrientation(type: AssetType, probe?: { width?: number; height?: number }): Orientation {
   if (type === "audio") return "1:1";
+  if (probe?.width && probe.height) {
+    const ratio = probe.width / probe.height;
+    if (ratio > 1.2) return "16:9";
+    if (ratio < 0.85) return "9:16";
+    return "1:1";
+  }
   return "9:16";
+}
+
+function formatDuration(seconds?: number) {
+  if (!seconds || !Number.isFinite(seconds)) return "待分析";
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${rest}`;
 }
 
 function assetColor(type: AssetType) {
@@ -104,6 +135,56 @@ async function runFfmpeg(args: string[]) {
   });
 }
 
+async function readFfmpegOutput(args: string[]) {
+  const command = await getFfmpegCommand();
+
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      shell: false,
+      windowsHide: true,
+    });
+
+    let output = "";
+    const appendOutput = (chunk: Buffer) => {
+      output = `${output}${chunk.toString()}`.slice(-8000);
+    };
+
+    child.stdout?.on("data", appendOutput);
+    child.stderr?.on("data", appendOutput);
+    child.on("error", reject);
+    child.on("close", () => resolve(output));
+  });
+}
+
+function parseDurationSeconds(output: string) {
+  const match = output.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  if (!match) return undefined;
+  return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+}
+
+function parseVideoSize(output: string) {
+  const match = output.match(/Video:[\s\S]*?(\d{2,5})x(\d{2,5})/);
+  if (!match) return {};
+  return {
+    width: Number(match[1]),
+    height: Number(match[2]),
+  };
+}
+
+async function probeMedia(filePath: string): Promise<MediaProbe> {
+  try {
+    const output = await readFfmpegOutput(["-i", filePath]);
+    return {
+      durationSec: parseDurationSeconds(output),
+      ...parseVideoSize(output),
+    };
+  } catch (error) {
+    console.warn("Media probe failed:", error);
+    return {};
+  }
+}
+
 async function createThumbnail(filePath: string, id: string, type: AssetType, url: string) {
   if (type === "image") return url;
   if (type !== "video") return undefined;
@@ -130,6 +211,39 @@ async function createThumbnail(filePath: string, id: string, type: AssetType, ur
     console.warn("Thumbnail generation failed:", error);
     return undefined;
   }
+}
+
+async function createKeyframes(filePath: string, id: string, type: AssetType, url: string) {
+  if (type === "image") return [url];
+  if (type !== "video") return [];
+
+  await fs.mkdir(keyframesDir, { recursive: true });
+  const keyframes: string[] = [];
+  const timestamps = ["00:00:00.5", "00:00:02", "00:00:04"];
+
+  for (let index = 0; index < timestamps.length; index += 1) {
+    const frameName = `${id}-${index + 1}.jpg`;
+    const framePath = path.join(keyframesDir, frameName);
+    try {
+      await runFfmpeg([
+        "-y",
+        "-ss",
+        timestamps[index],
+        "-i",
+        filePath,
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=360:-1",
+        framePath,
+      ]);
+      keyframes.push(`/uploads/keyframes/${frameName}`);
+    } catch (error) {
+      console.warn("Keyframe extraction failed:", error);
+    }
+  }
+
+  return keyframes;
 }
 
 async function readAssets(): Promise<Asset[]> {
@@ -178,23 +292,34 @@ export async function POST(request: NextRequest) {
 
     const type = inferType(file.type);
     const url = `/uploads/${storedName}`;
+    const probe = await probeMedia(filePath);
     const thumbnailUrl = await createThumbnail(filePath, id, type, url);
+    const keyframes = await createKeyframes(filePath, id, type, url);
+    const durationMs = probe.durationSec ? Math.round(probe.durationSec * 1000) : undefined;
     const asset: Asset = {
       id,
       name: path.basename(file.name, path.extname(file.name)) || safeName,
       type,
-      duration: type === "audio" ? "待分析" : "待分析",
-      orientation: inferOrientation(type),
+      duration: formatDuration(probe.durationSec),
+      orientation: inferOrientation(type, probe),
       tags: inferAssetTags(file.name, file.type, type),
       status: "review",
       color: assetColor(type),
-      source: "本地上传 / 自动打标",
+      source: keyframes.length > 0 ? "本地上传 / 已抽帧待复核" : "本地上传 / 自动打标",
       matchScore: 72,
       url,
       thumbnailUrl,
       fileName: file.name,
       size: file.size,
       uploadedAt: new Date().toISOString(),
+      analysis: {
+        status: keyframes.length > 0 ? "keyframed" : type === "audio" ? "metadata-only" : "pending",
+        keyframes,
+        width: probe.width,
+        height: probe.height,
+        durationMs,
+        visionStatus: keyframes.length > 0 ? "已抽帧，待接入本地视觉模型打标" : "待接入本地视觉模型",
+      },
     };
     createdAssets.push(asset);
   }

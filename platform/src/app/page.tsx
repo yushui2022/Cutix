@@ -58,6 +58,14 @@ type Asset = {
   fileName?: string;
   size?: number;
   uploadedAt?: string;
+  analysis?: {
+    status: "metadata-only" | "keyframed" | "pending";
+    keyframes: string[];
+    width?: number;
+    height?: number;
+    durationMs?: number;
+    visionStatus: string;
+  };
 };
 
 type Template = {
@@ -2629,7 +2637,34 @@ export default function Home() {
                             <span className="ml-2 inline-flex items-center gap-1 rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] text-white/70">
                               匹配 {asset.matchScore}
                             </span>
+                            {asset.analysis?.width && asset.analysis.height && (
+                              <span className="ml-1 inline-flex items-center gap-1 rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] text-white/55">
+                                {asset.analysis.width}x{asset.analysis.height}
+                              </span>
+                            )}
+                            {asset.analysis?.keyframes.length ? (
+                              <span className="ml-1 inline-flex items-center gap-1 rounded-md border border-cyan-300/15 bg-cyan-300/10 px-1.5 py-0.5 text-[10px] text-cyan-100">
+                                抽帧 {asset.analysis.keyframes.length}
+                              </span>
+                            ) : null}
                           </div>
+                          {asset.analysis?.visionStatus && (
+                            <div className="mt-2 rounded-lg border border-white/8 bg-black/15 px-2 py-1.5 text-[11px] text-white/45">
+                              {asset.analysis.visionStatus}
+                            </div>
+                          )}
+                          {asset.analysis?.keyframes.length ? (
+                            <div className="mt-2 grid grid-cols-3 gap-1.5">
+                              {asset.analysis.keyframes.slice(0, 3).map((frame) => (
+                                <img
+                                  alt=""
+                                  className="aspect-video rounded-md border border-white/8 object-cover"
+                                  key={frame}
+                                  src={frame}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
                           <div className="mt-2 flex flex-wrap gap-1">
                             {asset.tags.map((tag) => (
                               <span
