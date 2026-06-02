@@ -28,6 +28,7 @@
 20. 已完成 `videoPlan` 版本化与本地持久化 MVP：每次生成会带 `id`、`schemaVersion = cutix.video_plan.v1`、`createdAt`，并写入 `platform/data/video-plans/`，用于后续失败重试、替换素材后复用同一编排。
 21. 已完成生成任务台账 MVP：`/api/render` 会创建 render task，持续写入 `platform/data/render-tasks/`，记录 `videoPlan.id`、阶段、结果 URL 和失败原因；前端任务状态卡可查看最近任务。
 22. 已完成进程内后台任务提交 MVP：`POST /api/render-tasks` 会先创建任务并立即返回 `taskId`，再在服务端后台消费现有 `/api/render` 渲染流；前端提交任务后轮询台账，完成后自动显示预览和下载。
+23. 已完成批量任务提交 MVP：生成数量 `count` 不再只是前端展示，`POST /api/render-tasks` 会按数量创建多条 render task，并在当前进程内按队列顺序执行，避免本机 Remotion/FFmpeg 并发过载。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -396,6 +397,7 @@ worker_events   — Worker 日志
 - 后台入口会在服务端消费 `/api/render` 的 SSE 流：Remotion 渲染、FFmpeg 后处理和失败原因仍然写入 `platform/data/render-tasks/`。
 - 前端生成按钮改为提交后台任务并轮询 `GET /api/render-tasks`：任务完成后自动同步 `resultUrl`、`previewUrl`、`coverUrl` 并显示预览/下载。
 - 当前任务卡补充展示后台阶段和完成/失败状态。
+- `count` 已接入任务创建：一次点击可以创建多条后台任务，当前 MVP 按队列顺序执行；前端会同步返回的任务列表，并把当前任务指向整批队列的最后一条，用于持续显示整批生成状态。
 
 ### 下一步
 

@@ -1062,15 +1062,30 @@ export default function Home() {
 
       if (!res.ok) throw new Error(await res.text());
 
-      const payload = (await res.json()) as { task?: RenderTask; taskId?: string };
-      const submittedTaskId = payload.task?.id ?? payload.taskId;
+      const payload = (await res.json()) as {
+        task?: RenderTask;
+        tasks?: RenderTask[];
+        taskId?: string;
+        batchCount?: number;
+      };
+      const submittedTasks = Array.isArray(payload.tasks) && payload.tasks.length > 0
+        ? payload.tasks
+        : payload.task
+          ? [payload.task]
+          : [];
+      const submittedTaskId = submittedTasks[submittedTasks.length - 1]?.id ?? payload.taskId;
       if (!submittedTaskId) throw new Error("Render task id missing");
 
-      if (payload.task) {
-        setRenderTasks((tasks) => [payload.task as RenderTask, ...tasks.filter((task) => task.id !== submittedTaskId)]);
+      if (submittedTasks.length > 0) {
+        const submittedIds = new Set(submittedTasks.map((task) => task.id));
+        setRenderTasks((tasks) => [...submittedTasks, ...tasks.filter((task) => !submittedIds.has(task.id))]);
       }
       setCurrentTaskId(submittedTaskId);
-      setStatus("任务已提交，后台渲染中...");
+      setStatus(
+        submittedTasks.length > 1
+          ? `已提交 ${submittedTasks.length} 个后台任务，按队列渲染中...`
+          : "任务已提交，后台渲染中...",
+      );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("失败: " + message);

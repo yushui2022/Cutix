@@ -1,12 +1,16 @@
 import { NextRequest } from "next/server";
 import crypto from "crypto";
 import { createRenderTask, listRenderTasks, updateRenderTask } from "@/lib/render-task-store";
+import type { RenderTask } from "@/lib/render-task-store";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type RenderTaskSubmission = {
   ipId?: string;
+  count?: number | string;
+  batchIndex?: number;
+  batchCount?: number;
   brand?: {
     id?: string;
     name?: string;
@@ -32,6 +36,12 @@ function asSubmission(body: unknown): RenderTaskSubmission {
 function renderTaskId(ipId: string) {
   const safeIpId = ipId.replace(/[^a-z0-9_-]/gi, "") || "brand";
   return `task_${safeIpId}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function normalizedCount(value: RenderTaskSubmission["count"]) {
+  const count = Number(value);
+  if (!Number.isFinite(count)) return 1;
+  return Math.min(50, Math.max(1, Math.floor(count)));
 }
 
 async function drainRenderStream(origin: string, taskId: string, payload: RenderTaskSubmission) {
@@ -68,6 +78,18 @@ async function drainRenderStream(origin: string, taskId: string, payload: Render
   }
 }
 
+async function drainRenderBatch(
+  origin: string,
+  jobs: Array<{ taskId: string; payload: RenderTaskSubmission; index: number; total: number }>,
+) {
+  for (const job of jobs) {
+    await updateRenderTask(job.taskId, {
+      stage: job.total > 1 ? `后台队列执行中 (${job.index}/${job.total})` : "后台渲染中",
+    });
+    await drainRenderStream(origin, job.taskId, job.payload);
+  }
+}
+
 export async function GET() {
   const tasks = await listRenderTasks(50);
   return Response.json({ tasks }, { headers: { "Cache-Control": "no-store" } });
@@ -76,20 +98,36 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const payload = asSubmission(await request.json());
   const ipId = payload.ipId ?? payload.brand?.id ?? "wang";
-  const task = await createRenderTask({
-    id: renderTaskId(ipId),
-    brandId: ipId,
-    brandName: payload.brand?.name ?? ipId,
-    templateId: payload.template?.id ?? "default",
-    templateName: payload.template?.name ?? "默认模板",
-    platform: payload.script?.platform ?? "未知平台",
-    videoPlanId: payload.script?.videoPlan?.id,
-  });
+  const count = normalizedCount(payload.count);
+  const tasks: RenderTask[] = [];
+  const jobs = [];
 
-  void drainRenderStream(request.nextUrl.origin, task.id, payload);
+  for (let index = 1; index <= count; index += 1) {
+    const createdTask = await createRenderTask({
+      id: renderTaskId(ipId),
+      brandId: ipId,
+      brandName: payload.brand?.name ?? ipId,
+      templateId: payload.template?.id ?? "default",
+      templateName: payload.template?.name ?? "默认模板",
+      platform: payload.script?.platform ?? "未知平台",
+      videoPlanId: payload.script?.videoPlan?.id,
+    });
+    const task = await updateRenderTask(createdTask.id, {
+      stage: count > 1 ? `等待后台队列 (${index}/${count})` : "等待后台渲染",
+    });
+    const taskPayload = { ...payload, count: 1, batchIndex: index, batchCount: count };
+    tasks.push(task);
+    jobs.push({ taskId: task.id, payload: taskPayload, index, total: count });
+  }
+
+  void drainRenderBatch(request.nextUrl.origin, jobs);
+  const currentTask = tasks[tasks.length - 1];
+  if (!currentTask) {
+    return Response.json({ error: "No render task created" }, { status: 500 });
+  }
 
   return Response.json(
-    { task, taskId: task.id },
+    { task: currentTask, tasks, taskId: currentTask.id, batchCount: count },
     {
       status: 202,
       headers: { "Cache-Control": "no-store" },
