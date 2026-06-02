@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import { defaultConfig } from "@/lib/default-config";
-import type { BrandConfig, CutixConfig, TemplateConfig } from "@/lib/default-config";
+import type { BrandConfig, BrandDigitalHumanProfile, CutixConfig, TemplateConfig } from "@/lib/default-config";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,7 +43,14 @@ function isBrandConfig(value: unknown): value is BrandConfig {
   const item = value as Record<string, unknown>;
   return ["id", "name", "industry", "color", "tone", "promise", "defaultBgm"].every(
     (key) => typeof item[key] === "string",
-  );
+  ) && isBrandDigitalHumanProfile(item.digitalHuman);
+}
+
+function isBrandDigitalHumanProfile(value: unknown): value is BrandDigitalHumanProfile | undefined {
+  if (value === undefined) return true;
+  if (typeof value !== "object" || value === null) return false;
+  const item = value as Record<string, unknown>;
+  return ["roleName", "avatarPath", "voiceId", "notes"].every((key) => typeof item[key] === "string");
 }
 
 function isTemplateConfig(value: unknown): value is TemplateConfig {

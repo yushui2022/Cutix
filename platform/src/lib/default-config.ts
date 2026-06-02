@@ -1,3 +1,10 @@
+export type BrandDigitalHumanProfile = {
+  roleName: string;
+  avatarPath: string;
+  voiceId: string;
+  notes: string;
+};
+
 export type BrandConfig = {
   id: string;
   name: string;
@@ -6,6 +13,7 @@ export type BrandConfig = {
   tone: string;
   promise: string;
   defaultBgm: string;
+  digitalHuman?: BrandDigitalHumanProfile;
 };
 
 export type TemplateConfig = {
@@ -32,6 +40,12 @@ export const defaultBrands: BrandConfig[] = [
     tone: "专业、直接、有紧迫感",
     promise: "突出回本模型、门店复制和招商转化",
     defaultBgm: "商务节奏 BGM",
+    digitalHuman: {
+      roleName: "老王口播数字人",
+      avatarPath: "",
+      voiceId: "wang-default",
+      notes: "餐饮招商口播角色",
+    },
   },
   {
     id: "li",
@@ -41,6 +55,12 @@ export const defaultBrands: BrandConfig[] = [
     tone: "理性、可信、数据化",
     promise: "强调方法论、案例证据和增长结果",
     defaultBgm: "稳健科技 BGM",
+    digitalHuman: {
+      roleName: "李总商业数字人",
+      avatarPath: "",
+      voiceId: "li-default",
+      notes: "企业增长服务口播角色",
+    },
   },
   {
     id: "zhang",
@@ -50,6 +70,12 @@ export const defaultBrands: BrandConfig[] = [
     tone: "亲近、审美强、重体验",
     promise: "突出前后对比、真实体验和社交种草",
     defaultBgm: "轻快生活 BGM",
+    digitalHuman: {
+      roleName: "张姐美妆数字人",
+      avatarPath: "",
+      voiceId: "zhang-default",
+      notes: "美妆种草口播角色",
+    },
   },
 ];
 

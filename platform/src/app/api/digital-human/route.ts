@@ -38,6 +38,16 @@ type NormalizedChromaKeyOptions = {
 };
 
 type DigitalHumanRequest = {
+  brand?: {
+    id?: string;
+    name?: string;
+    digitalHuman?: {
+      roleName?: string;
+      avatarPath?: string;
+      voiceId?: string;
+      notes?: string;
+    };
+  };
   script?: {
     scenes: ScriptScene[];
   };
@@ -77,6 +87,8 @@ type StoredDigitalHumanConfig = {
   pythonPath: string;
   apiKey?: string;
 };
+
+type BrandDigitalHumanProfile = NonNullable<DigitalHumanRequest["brand"]>["digitalHuman"];
 
 const outputDir = path.join(process.cwd(), "public", "output", "digital-human");
 const dataDir = path.join(process.cwd(), "data", "digital-human");
@@ -646,6 +658,7 @@ async function pollHttpApiClip(
 async function createHttpApiClip(
   clip: TtsClip,
   runtimeConfig: StoredDigitalHumanConfig,
+  brand: DigitalHumanRequest["brand"],
 ): Promise<DigitalHumanClip> {
   if (!runtimeConfig.endpoint) throw new Error("Digital human HTTP endpoint is not configured");
 
@@ -664,6 +677,11 @@ async function createHttpApiClip(
       audioUrl: clip.audioUrl,
       audioPath,
       durationMs: clip.durationMs,
+      brandId: brand?.id,
+      brandName: brand?.name,
+      roleName: brand?.digitalHuman?.roleName,
+      voiceId: brand?.digitalHuman?.voiceId,
+      avatarPath: brand?.digitalHuman?.avatarPath || runtimeConfig.avatarPath,
     }),
     signal: AbortSignal.timeout(10 * 60 * 1000),
   });
@@ -699,6 +717,16 @@ function needsDigitalHuman(scene: ScriptScene | undefined, clip: TtsClip) {
   return digitalHumanLayouts.has(scene?.layout ?? clip.layout);
 }
 
+function applyBrandDigitalHumanProfile(
+  runtimeConfig: StoredDigitalHumanConfig,
+  profile: BrandDigitalHumanProfile,
+): StoredDigitalHumanConfig {
+  return {
+    ...runtimeConfig,
+    avatarPath: profile?.avatarPath?.trim() || runtimeConfig.avatarPath,
+  };
+}
+
 export async function POST(request: NextRequest) {
   const body: unknown = await request.json();
   const data = typeof body === "object" && body !== null ? body as DigitalHumanRequest : {};
@@ -714,6 +742,7 @@ export async function POST(request: NextRequest) {
   const jobId = `dh_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
   const requestedProvider = data.provider ?? "auto";
   const runtimeConfig = await readDigitalHumanConfig();
+  const effectiveRuntimeConfig = applyBrandDigitalHumanProfile(runtimeConfig, data.brand?.digitalHuman);
   const autoProvider: DigitalHumanProvider = process.env.MUSETALK_ENABLE === "1" ? "musetalk-cli" : runtimeConfig.provider;
   const effectiveProvider = requestedProvider === "auto" ? autoProvider : requestedProvider;
   const alphaEnabled = data.alpha !== false;
@@ -746,9 +775,9 @@ export async function POST(request: NextRequest) {
   for (const clip of targetClips) {
     try {
       if (effectiveProvider === "musetalk-cli") {
-        addGeneratedClip(await createMuseTalkClip(clip, jobId, alphaEnabled, chromaKey, runtimeConfig));
+        addGeneratedClip(await createMuseTalkClip(clip, jobId, alphaEnabled, chromaKey, effectiveRuntimeConfig));
       } else if (effectiveProvider === "http-api") {
-        addGeneratedClip(await createHttpApiClip(clip, runtimeConfig));
+        addGeneratedClip(await createHttpApiClip(clip, effectiveRuntimeConfig, data.brand));
       } else {
         addGeneratedClip(await createPlaceholderClip(clip, jobId, alphaEnabled, chromaKey));
       }

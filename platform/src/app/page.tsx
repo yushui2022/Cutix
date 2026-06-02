@@ -30,6 +30,14 @@ type IP = {
   tone: string;
   promise: string;
   defaultBgm: string;
+  digitalHuman?: BrandDigitalHumanProfile;
+};
+
+type BrandDigitalHumanProfile = {
+  roleName: string;
+  avatarPath: string;
+  voiceId: string;
+  notes: string;
 };
 
 type Asset = {
@@ -461,6 +469,15 @@ const digitalHumanProviderLabel: Record<DigitalHumanProvider, string> = {
   "http-api": "HTTP 数字人 API",
 };
 
+function digitalHumanProfileForBrand(brand: IP): BrandDigitalHumanProfile {
+  return {
+    roleName: brand.digitalHuman?.roleName || `${brand.name}数字人`,
+    avatarPath: brand.digitalHuman?.avatarPath || "",
+    voiceId: brand.digitalHuman?.voiceId || `${brand.id}-default`,
+    notes: brand.digitalHuman?.notes || "",
+  };
+}
+
 const sceneRoleLabel: Record<string, string> = {
   hook: "开场钩子",
   pain: "痛点",
@@ -844,6 +861,16 @@ export default function Home() {
     setTagDraft(asset.tags.join("，"));
   };
 
+  const updateBrandDigitalHuman = (patch: Partial<BrandDigitalHumanProfile>) => {
+    setBrandDraft((current) => ({
+      ...current,
+      digitalHuman: {
+        ...digitalHumanProfileForBrand(current),
+        ...patch,
+      },
+    }));
+  };
+
   const saveTags = async (asset: Asset) => {
     const tags = tagDraft
       .split(/[,\s，、]+/u)
@@ -1104,6 +1131,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          brand: selectedIP,
           script: scriptPreview,
           tts: ttsPreview,
           provider: "auto",
@@ -1278,6 +1306,8 @@ export default function Home() {
   const fieldClass =
     "mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none transition focus:border-[#ff3b5c]/60 focus:bg-white/[0.06]";
   const availableAssetCount = assets.filter((asset) => asset.status !== "disabled").length;
+  const selectedDigitalHumanProfile = digitalHumanProfileForBrand(selectedIP);
+  const brandDigitalHuman = digitalHumanProfileForBrand(brandDraft);
   const digitalHumanConnectionStatus =
     digitalHumanConfig.provider === "http-api"
       ? digitalHumanConfig.endpoint
@@ -1290,7 +1320,7 @@ export default function Home() {
     digitalHumanConfig.provider === "http-api"
       ? Boolean(digitalHumanConfig.endpoint)
       : digitalHumanConfig.provider === "musetalk-cli"
-        ? Boolean(digitalHumanConfig.avatarPath)
+        ? Boolean(selectedDigitalHumanProfile.avatarPath || digitalHumanConfig.avatarPath)
         : false;
   const healthyWorkerCount = workerStatus?.healthyWorkers.length ?? 0;
   const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
@@ -1748,6 +1778,9 @@ export default function Home() {
                     />
                     <div className="truncate font-semibold text-white">{ip.name}</div>
                     <div className="mt-1 text-xs text-white/50">{ip.tone}</div>
+                    <div className="mt-2 truncate text-[11px] text-white/40">
+                      数字人 · {digitalHumanProfileForBrand(ip).roleName}
+                    </div>
                     <div className="mt-3 text-xs leading-5 text-white/70">{ip.promise}</div>
                   </button>
                 );
@@ -1825,6 +1858,52 @@ export default function Home() {
                     value={brandDraft.promise}
                   />
                 </label>
+                <div className="md:col-span-2 rounded-xl border border-white/8 bg-black/20 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-white">数字人角色</div>
+                      <div className="mt-0.5 text-[11px] text-white/45">当前 IP 角色档案</div>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/50">
+                      {brandDigitalHuman.avatarPath ? "已绑定" : "待绑定"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="text-xs font-medium text-white/60">
+                      角色名称
+                      <input
+                        className={fieldClass}
+                        onChange={(event) => updateBrandDigitalHuman({ roleName: event.target.value })}
+                        value={brandDigitalHuman.roleName}
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-white/60">
+                      声音标识
+                      <input
+                        className={fieldClass}
+                        onChange={(event) => updateBrandDigitalHuman({ voiceId: event.target.value })}
+                        value={brandDigitalHuman.voiceId}
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-white/60 md:col-span-2">
+                      角色参考素材路径
+                      <input
+                        className={fieldClass}
+                        onChange={(event) => updateBrandDigitalHuman({ avatarPath: event.target.value })}
+                        placeholder="C:\\avatars\\wang.mp4"
+                        value={brandDigitalHuman.avatarPath}
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-white/60 md:col-span-2">
+                      备注
+                      <textarea
+                        className={`${fieldClass} min-h-16 resize-none`}
+                        onChange={(event) => updateBrandDigitalHuman({ notes: event.target.value })}
+                        value={brandDigitalHuman.notes}
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
           </section>
@@ -2458,7 +2537,7 @@ export default function Home() {
                 <p className="mt-0.5 text-xs text-white/50">
                   {digitalHumanPreview
                     ? `${digitalHumanPreview.clips.length} 段 · ${formatDuration(digitalHumanPreview.totalDurationMs)}`
-                    : "等待语音"}
+                    : `${selectedDigitalHumanProfile.roleName} · 等待语音`}
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-violet-300/20 bg-violet-300/10 px-2.5 py-1 text-xs font-semibold text-violet-100">
