@@ -272,6 +272,30 @@ type RenderTask = {
   completedAt?: string;
 };
 
+type WorkerState = {
+  id: string;
+  kind: "render";
+  status: "idle" | "processing" | "stopped";
+  origin: string;
+  currentTaskId?: string;
+  processedTasks: number;
+  startedAt: string;
+  lastHeartbeatAt: string;
+};
+
+type WorkerStatusPayload = {
+  workers: WorkerState[];
+  healthyWorkers: WorkerState[];
+  queue: {
+    total: number;
+    queued: number;
+    running: number;
+    completed: number;
+    failed: number;
+  };
+  generatedAt: string;
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
@@ -463,6 +487,7 @@ export default function Home() {
   const [currentTaskId, setCurrentTaskId] = useState("");
   const [retryingTaskId, setRetryingTaskId] = useState("");
   const [renderTasks, setRenderTasks] = useState<RenderTask[]>([]);
+  const [workerStatus, setWorkerStatus] = useState<WorkerStatusPayload | null>(null);
   const [resultUrl, setResultUrl] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
@@ -478,6 +503,19 @@ export default function Home() {
     } catch {
       setRenderTasks([]);
       return [];
+    }
+  }, []);
+
+  const loadWorkerStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/worker-status");
+      if (!res.ok) throw new Error(await res.text());
+      const payload = (await res.json()) as WorkerStatusPayload;
+      setWorkerStatus(payload);
+      return payload;
+    } catch {
+      setWorkerStatus(null);
+      return null;
     }
   }, []);
 
@@ -588,6 +626,15 @@ export default function Home() {
   useEffect(() => {
     void loadRenderTasks();
   }, [loadRenderTasks]);
+
+  useEffect(() => {
+    void loadWorkerStatus();
+    const timer = window.setInterval(() => {
+      void loadWorkerStatus();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [loadWorkerStatus]);
 
   const selectedAssetList = useMemo(
     () => assets.filter((asset) => selectedAssets.includes(asset.id)),
@@ -1147,6 +1194,8 @@ export default function Home() {
       : digitalHumanConfig.provider === "musetalk-cli"
         ? "本地 MuseTalk"
         : "占位测试";
+  const healthyWorkerCount = workerStatus?.healthyWorkers.length ?? 0;
+  const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
   const storyboardScenes = scriptPreview?.videoPlan?.scenes ?? scriptPreview?.scenes ?? [];
 
   return (
@@ -1166,12 +1215,19 @@ export default function Home() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/70">
               <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 pulse-dot" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                {healthyWorkerCount > 0 && (
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 pulse-dot" />
+                )}
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${
+                    healthyWorkerCount > 0 ? "bg-emerald-400" : "bg-amber-300"
+                  }`}
+                />
               </span>
-              Worker 空闲 <span className="font-semibold text-white">3</span>
+              {healthyWorkerCount > 0 ? "Worker 在线" : "Worker 待启动"}{" "}
+              <span className="font-semibold text-white">{healthyWorkerCount}</span>
               <span className="text-white/30">/</span>
-              队列 <span className="font-semibold text-white">0</span>
+              队列 <span className="font-semibold text-white">{queueActiveCount}</span>
             </div>
             <button
               className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${
