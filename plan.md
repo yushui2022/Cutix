@@ -29,6 +29,7 @@
 21. 已完成生成任务台账 MVP：`/api/render` 会创建 render task，持续写入 `platform/data/render-tasks/`，记录 `videoPlan.id`、阶段、结果 URL 和失败原因；前端任务状态卡可查看最近任务。
 22. 已完成进程内后台任务提交 MVP：`POST /api/render-tasks` 会先创建任务并立即返回 `taskId`，再在服务端后台消费现有 `/api/render` 渲染流；前端提交任务后轮询台账，完成后自动显示预览和下载。
 23. 已完成批量任务提交 MVP：生成数量 `count` 不再只是前端展示，`POST /api/render-tasks` 会按数量创建多条 render task，并在当前进程内按队列顺序执行，避免本机 Remotion/FFmpeg 并发过载。
+24. 已完成任务 payload 持久化与重试 MVP：新建任务会把完整渲染请求写入 `platform/data/render-task-payloads/`，失败/完成任务可通过 retry API 重新提交，前端任务卡显示“重试/重渲染”入口。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -398,6 +399,7 @@ worker_events   — Worker 日志
 - 前端生成按钮改为提交后台任务并轮询 `GET /api/render-tasks`：任务完成后自动同步 `resultUrl`、`previewUrl`、`coverUrl` 并显示预览/下载。
 - 当前任务卡补充展示后台阶段和完成/失败状态。
 - `count` 已接入任务创建：一次点击可以创建多条后台任务，当前 MVP 按队列顺序执行；前端会同步返回的任务列表，并把当前任务指向整批队列的最后一条，用于持续显示整批生成状态。
+- 新增任务 payload 持久化与 retry API：新任务保存完整请求 payload，`POST /api/render-tasks/[taskId]/retry` 可读回 payload 并重置任务状态，前端对可恢复任务显示“重试/重渲染”按钮。
 
 ### 下一步
 

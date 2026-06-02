@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import crypto from "crypto";
 import { createRenderTask, listRenderTasks, updateRenderTask } from "@/lib/render-task-store";
+import { writeRenderTaskPayload } from "@/lib/render-task-payload-store";
+import { drainRenderTaskBatch } from "@/lib/render-task-runner";
 import type { RenderTask } from "@/lib/render-task-store";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +29,6 @@ type RenderTaskSubmission = {
   };
 };
 
-const activeRenderTaskIds = new Set<string>();
-
 function asSubmission(body: unknown): RenderTaskSubmission {
   return typeof body === "object" && body !== null ? body as RenderTaskSubmission : {};
 }
@@ -42,52 +42,6 @@ function normalizedCount(value: RenderTaskSubmission["count"]) {
   const count = Number(value);
   if (!Number.isFinite(count)) return 1;
   return Math.min(50, Math.max(1, Math.floor(count)));
-}
-
-async function drainRenderStream(origin: string, taskId: string, payload: RenderTaskSubmission) {
-  if (activeRenderTaskIds.has(taskId)) return;
-  activeRenderTaskIds.add(taskId);
-
-  try {
-    const response = await fetch(`${origin}/api/render`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, taskId }),
-    });
-
-    if (!response.ok) throw new Error(await response.text());
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error("Render stream is not available");
-
-    while (true) {
-      const { done } = await reader.read();
-      if (done) break;
-    }
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown render error";
-    console.error("Background render task failed:", error);
-    await updateRenderTask(taskId, {
-      status: "failed",
-      stage: "后台渲染失败",
-      error: message,
-      completedAt: new Date().toISOString(),
-    });
-  } finally {
-    activeRenderTaskIds.delete(taskId);
-  }
-}
-
-async function drainRenderBatch(
-  origin: string,
-  jobs: Array<{ taskId: string; payload: RenderTaskSubmission; index: number; total: number }>,
-) {
-  for (const job of jobs) {
-    await updateRenderTask(job.taskId, {
-      stage: job.total > 1 ? `后台队列执行中 (${job.index}/${job.total})` : "后台渲染中",
-    });
-    await drainRenderStream(origin, job.taskId, job.payload);
-  }
 }
 
 export async function GET() {
@@ -112,15 +66,17 @@ export async function POST(request: NextRequest) {
       platform: payload.script?.platform ?? "未知平台",
       videoPlanId: payload.script?.videoPlan?.id,
     });
+    const taskPayload = { ...payload, count: 1, batchIndex: index, batchCount: count };
+    await writeRenderTaskPayload(createdTask.id, taskPayload);
     const task = await updateRenderTask(createdTask.id, {
       stage: count > 1 ? `等待后台队列 (${index}/${count})` : "等待后台渲染",
+      payloadStored: true,
     });
-    const taskPayload = { ...payload, count: 1, batchIndex: index, batchCount: count };
     tasks.push(task);
     jobs.push({ taskId: task.id, payload: taskPayload, index, total: count });
   }
 
-  void drainRenderBatch(request.nextUrl.origin, jobs);
+  void drainRenderTaskBatch(request.nextUrl.origin, jobs);
   const currentTask = tasks[tasks.length - 1];
   if (!currentTask) {
     return Response.json({ error: "No render task created" }, { status: 500 });

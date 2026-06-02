@@ -17,6 +17,7 @@ export type RenderTask = {
   previewUrl?: string;
   coverUrl?: string;
   hasAudio?: boolean;
+  payloadStored?: boolean;
   scenes?: number;
   error?: string;
   createdAt: string;

@@ -265,6 +265,7 @@ type RenderTask = {
   resultUrl?: string;
   previewUrl?: string;
   coverUrl?: string;
+  payloadStored?: boolean;
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -460,6 +461,7 @@ export default function Home() {
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
   const [currentTaskId, setCurrentTaskId] = useState("");
+  const [retryingTaskId, setRetryingTaskId] = useState("");
   const [renderTasks, setRenderTasks] = useState<RenderTask[]>([]);
   const [resultUrl, setResultUrl] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
@@ -1091,6 +1093,37 @@ export default function Home() {
       setStatus("失败: " + message);
       setGenerating(false);
     } finally {
+      await loadRenderTasks();
+    }
+  };
+
+  const handleRetryRenderTask = async (taskId: string) => {
+    setRetryingTaskId(taskId);
+    setGenerating(true);
+    setCurrentTaskId(taskId);
+    setResultUrl("");
+    setPreviewUrl("");
+    setCoverUrl("");
+    setStatus("正在重新提交后台任务...");
+
+    try {
+      const res = await fetch(`/api/render-tasks/${encodeURIComponent(taskId)}/retry`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as { task?: RenderTask; taskId?: string };
+      if (payload.task) {
+        setRenderTasks((tasks) => [payload.task as RenderTask, ...tasks.filter((task) => task.id !== taskId)]);
+      }
+      setCurrentTaskId(payload.taskId ?? taskId);
+      setStatus("任务已重新提交，后台渲染中...");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("重试失败: " + message);
+      setGenerating(false);
+    } finally {
+      setRetryingTaskId("");
       await loadRenderTasks();
     }
   };
@@ -2407,6 +2440,16 @@ export default function Home() {
                       >
                         查看预览
                       </a>
+                    )}
+                    {task.payloadStored && (task.status === "failed" || task.status === "completed") && (
+                      <button
+                        className="ml-2 mt-2 inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={retryingTaskId === task.id}
+                        onClick={() => void handleRetryRenderTask(task.id)}
+                        type="button"
+                      >
+                        {retryingTaskId === task.id ? "提交中..." : task.status === "failed" ? "重试" : "重渲染"}
+                      </button>
                     )}
                   </div>
                 ))}
