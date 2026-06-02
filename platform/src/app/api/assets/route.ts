@@ -3,11 +3,13 @@ import { spawn } from "child_process";
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
+import { inferAssetTags } from "@/lib/tag-taxonomy";
+import type { AssetTagType } from "@/lib/tag-taxonomy";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type AssetType = "video" | "image" | "audio" | "avatar";
+type AssetType = AssetTagType;
 type Orientation = "9:16" | "16:9" | "1:1";
 type AssetStatus = "ready" | "review" | "disabled";
 
@@ -60,34 +62,6 @@ function assetColor(type: AssetType) {
   if (type === "audio") return "#64748b";
   if (type === "avatar") return "#a855f7";
   return "#f97316";
-}
-
-function autoTags(fileName: string, mime: string, type: AssetType) {
-  const text = `${fileName} ${mime}`.toLowerCase();
-  const tags = new Set<string>();
-
-  tags.add(type === "audio" ? "BGM" : type === "image" ? "图片" : "视频");
-
-  const rules: Array<[RegExp, string]> = [
-    [/门店|店铺|店面|store|shop/, "门店"],
-    [/人流|客流|crowd|traffic/, "人流"],
-    [/产品|商品|product|sku/, "产品"],
-    [/案例|客户|case|client/, "案例"],
-    [/口播|数字人|avatar|talking|host/, "口播"],
-    [/招商|加盟|join|franchise/, "招商"],
-    [/美妆|护肤|beauty|skin/, "美妆"],
-    [/活动|节日|促销|sale|event/, "活动"],
-  ];
-
-  for (const [pattern, tag] of rules) {
-    if (pattern.test(text)) tags.add(tag);
-  }
-
-  if (tags.size < 3 && type === "video") tags.add("待细分");
-  if (tags.size < 3 && type === "image") tags.add("视觉素材");
-  if (tags.size < 3 && type === "audio") tags.add("背景音乐");
-
-  return Array.from(tags).slice(0, 6);
 }
 
 function getBundledFfmpegPath() {
@@ -211,7 +185,7 @@ export async function POST(request: NextRequest) {
       type,
       duration: type === "audio" ? "待分析" : "待分析",
       orientation: inferOrientation(type),
-      tags: autoTags(file.name, file.type, type),
+      tags: inferAssetTags(file.name, file.type, type),
       status: "review",
       color: assetColor(type),
       source: "本地上传 / 自动打标",

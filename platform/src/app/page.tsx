@@ -20,6 +20,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { defaultBrands, defaultTemplates } from "@/lib/default-config";
+import { tagTaxonomy } from "@/lib/tag-taxonomy";
 import type { LucideIcon } from "lucide-react";
 
 type IP = {
@@ -377,6 +378,8 @@ const currentRenderTaskStatusLabels: Record<RenderTask["status"], string> = {
 
 const seedIps: IP[] = defaultBrands;
 const seedTemplates: Template[] = defaultTemplates;
+const taxonomyTags = tagTaxonomy.flatMap((category) => category.tags);
+const taxonomyTagSet = new Set(taxonomyTags);
 const alphaPreviewStyle = {
   backgroundColor: "#111827",
   backgroundImage:
@@ -542,6 +545,7 @@ export default function Home() {
   });
   const [showSystemSettings, setShowSystemSettings] = useState(false);
   const [selectedAssets, setSelectedAssets] = useState<string[]>(["store", "product", "avatar"]);
+  const [activeTagFilter, setActiveTagFilter] = useState("");
   const [assets, setAssets] = useState<Asset[]>(seedAssets);
   const [targetPlatform, setTargetPlatform] = useState(platforms[0]);
   const [copyMode, setCopyMode] = useState(copyModes[0].id);
@@ -719,6 +723,23 @@ export default function Home() {
     () => assets.filter((asset) => selectedAssets.includes(asset.id)),
     [assets, selectedAssets],
   );
+  const visibleAssets = useMemo(
+    () => (activeTagFilter ? assets.filter((asset) => asset.tags.includes(activeTagFilter)) : assets),
+    [activeTagFilter, assets],
+  );
+  const tagUsageCount = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const asset of assets) {
+      for (const tag of asset.tags) counts[tag] = (counts[tag] ?? 0) + 1;
+    }
+    return counts;
+  }, [assets]);
+  const tagCoverageStats = useMemo(() => {
+    const taggedAssetCount = assets.filter((asset) => asset.tags.length > 0).length;
+    const usedTaxonomyTagCount = taxonomyTags.filter((tag) => (tagUsageCount[tag] ?? 0) > 0).length;
+    const customTagCount = Object.keys(tagUsageCount).filter((tag) => !taxonomyTagSet.has(tag)).length;
+    return { taggedAssetCount, usedTaxonomyTagCount, customTagCount };
+  }, [assets, tagUsageCount]);
 
   const currentRenderTask = useMemo(
     () => renderTasks.find((task) => task.id === currentTaskId),
@@ -2064,8 +2085,95 @@ export default function Home() {
               </button>
             </div>
 
+            <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.025] p-4">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-white">标签管理</div>
+                  <div className="mt-1 text-xs text-white/45">
+                    上传素材会按这套标签体系自动归类；点击标签可筛选素材，方便复核和修正。
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-white/55">
+                    已打标 {tagCoverageStats.taggedAssetCount}/{assets.length}
+                  </span>
+                  <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-emerald-100">
+                    体系标签 {tagCoverageStats.usedTaxonomyTagCount}/{taxonomyTags.length}
+                  </span>
+                  {tagCoverageStats.customTagCount > 0 && (
+                    <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-amber-100">
+                      自定义 {tagCoverageStats.customTagCount}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <button
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                    activeTagFilter
+                      ? "border-white/10 bg-white/[0.03] text-white/60 hover:text-white"
+                      : "border-[#ff3b5c]/40 bg-[#ff3b5c]/15 text-white"
+                  }`}
+                  onClick={() => setActiveTagFilter("")}
+                  type="button"
+                >
+                  全部素材
+                </button>
+                {activeTagFilter && (
+                  <span className="rounded-lg border border-[#ff3b5c]/30 bg-[#ff3b5c]/10 px-2.5 py-1 text-xs text-white/75">
+                    当前筛选：{activeTagFilter} · {visibleAssets.length} 个
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {tagTaxonomy.map((category) => (
+                  <div className="rounded-xl border border-white/8 bg-black/15 p-3" key={category.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-semibold text-white">{category.label}</div>
+                        <div className="mt-0.5 text-[11px] leading-4 text-white/40">{category.description}</div>
+                      </div>
+                      <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-white/45">
+                        {category.tags.filter((tag) => (tagUsageCount[tag] ?? 0) > 0).length}/{category.tags.length}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {category.tags.map((tag) => {
+                        const selected = activeTagFilter === tag;
+                        const countForTag = tagUsageCount[tag] ?? 0;
+                        return (
+                          <button
+                            className={`rounded-md border px-2 py-1 text-[11px] transition ${
+                              selected
+                                ? "border-[#ff3b5c]/50 bg-[#ff3b5c]/15 text-white"
+                                : countForTag > 0
+                                  ? "border-white/10 bg-white/[0.04] text-white/70 hover:text-white"
+                                  : "border-white/8 bg-white/[0.02] text-white/35 hover:text-white/60"
+                            }`}
+                            key={tag}
+                            onClick={() => setActiveTagFilter(selected ? "" : tag)}
+                            type="button"
+                          >
+                            {tag}
+                            <span className="ml-1 text-white/35">{countForTag}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              {assets.map((asset) => {
+              {visibleAssets.length === 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/[0.025] p-5 text-sm text-white/50 xl:col-span-2">
+                  当前没有匹配「{activeTagFilter}」的素材。上传新素材或编辑已有素材标签后会出现在这里。
+                </div>
+              )}
+              {visibleAssets.map((asset) => {
                 const selected = selectedAssets.includes(asset.id);
                 const editing = editingAssetId === asset.id;
                 return (
