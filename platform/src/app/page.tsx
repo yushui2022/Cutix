@@ -553,6 +553,8 @@ export default function Home() {
   const [copyMode, setCopyMode] = useState(copyModes[0].id);
   const [count, setCount] = useState(6);
   const [generating, setGenerating] = useState(false);
+  const [fullWorkflowRunning, setFullWorkflowRunning] = useState(false);
+  const [showAdvancedWorkflow, setShowAdvancedWorkflow] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [scriptGenerating, setScriptGenerating] = useState(false);
   const [scriptSource, setScriptSource] = useState("");
@@ -1409,6 +1411,175 @@ export default function Home() {
     }
   };
 
+  const handleRunProductionWorkflow = async () => {
+    if (!productionDigitalHumanReady) {
+      setShowSystemSettings(true);
+      setStatus("请先在系统设置接入生产数字人服务；占位数字人不能用于客户交付");
+      return;
+    }
+
+    if (availableAssetCount === 0) {
+      setStatus("请先导入并启用素材，系统需要本地素材库完成剪辑拼接");
+      return;
+    }
+
+    setFullWorkflowRunning(true);
+    setGenerating(true);
+    setCurrentTaskId("");
+    setResultUrl("");
+    setPreviewUrl("");
+    setCoverUrl("");
+    setScriptPreview(null);
+    setSelectionPreview(null);
+    setTtsPreview(null);
+    setDigitalHumanPreview(null);
+
+    try {
+      const shouldUseLlm = llmConfig.apiKeySet
+        || llmConfig.provider !== defaultLlmConfig.provider
+        || llmConfig.baseUrl !== defaultLlmConfig.baseUrl
+        || llmConfig.model !== defaultLlmConfig.model;
+      const assetTags = selectedAssetList.flatMap((asset) => asset.tags);
+
+      setStatus("正在自动生成文案和视频编排...");
+      const scriptRes = await fetch("/api/script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brand: selectedIP,
+          template: selectedTemplate,
+          targetPlatform,
+          copyMode,
+          assetTags,
+          useLlm: shouldUseLlm,
+        }),
+      });
+      if (!scriptRes.ok) throw new Error(await scriptRes.text());
+      const scriptPayload = (await scriptRes.json()) as {
+        source: string;
+        script: GeneratedScript;
+        llmError?: string;
+      };
+      const generatedScript = scriptPayload.script;
+      setScriptPreview(generatedScript);
+      setScriptSource(scriptPayload.source);
+
+      setStatus("正在按分镜要求匹配本地素材...");
+      const selectionRes = await fetch("/api/selection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script: generatedScript,
+          assets,
+          targetPlatform,
+        }),
+      });
+      if (!selectionRes.ok) throw new Error(await selectionRes.text());
+      const generatedSelection = (await selectionRes.json()) as AssetSelectionPreview;
+      setSelectionPreview(generatedSelection);
+      const workflowAssetIds = generatedSelection.selectedAssetIds.length > 0
+        ? generatedSelection.selectedAssetIds
+        : selectedAssets;
+      if (generatedSelection.selectedAssetIds.length > 0) setSelectedAssets(generatedSelection.selectedAssetIds);
+
+      setStatus("正在生成数字人口播语音...");
+      const ttsRes = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          script: generatedScript,
+          provider: "auto",
+          voiceId: selectedDigitalHumanProfile.voiceId || "中文女",
+          speed: 1,
+        }),
+      });
+      if (!ttsRes.ok) throw new Error(await ttsRes.text());
+      const generatedTts = (await ttsRes.json()) as TtsPreview;
+      setTtsPreview(generatedTts);
+
+      setStatus("正在调用生产数字人服务...");
+      const digitalHumanRes = await fetch("/api/digital-human", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brand: selectedIP,
+          script: generatedScript,
+          tts: generatedTts,
+          provider: "auto",
+          alpha: true,
+          allowPlaceholder: false,
+          chromaKey: {
+            color: "#00FF00",
+            similarity: 0.18,
+            blend: 0.08,
+          },
+        }),
+      });
+      if (!digitalHumanRes.ok) throw new Error(await digitalHumanRes.text());
+      const generatedDigitalHuman = (await digitalHumanRes.json()) as DigitalHumanPreview;
+      if (
+        generatedDigitalHuman.productionReady === false
+        || generatedDigitalHuman.clips.some((clip) => clip.placeholder)
+      ) {
+        throw new Error("数字人服务返回了占位片段，已阻止提交成片");
+      }
+      setDigitalHumanPreview(generatedDigitalHuman);
+
+      setStatus("正在提交成片生成任务...");
+      const renderRes = await fetch("/api/render-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ipId: selectedIP.id,
+          brand: selectedIP,
+          template: selectedTemplate,
+          script: generatedScript,
+          selection: generatedSelection,
+          tts: generatedTts,
+          digitalHuman: generatedDigitalHuman,
+          templateId: selectedTemplate.id,
+          assetIds: workflowAssetIds,
+          targetPlatform,
+          copyMode,
+          count,
+        }),
+      });
+      if (!renderRes.ok) throw new Error(await renderRes.text());
+
+      const renderPayload = (await renderRes.json()) as {
+        task?: RenderTask;
+        tasks?: RenderTask[];
+        taskId?: string;
+        autoStarted?: boolean;
+      };
+      const submittedTasks = Array.isArray(renderPayload.tasks) && renderPayload.tasks.length > 0
+        ? renderPayload.tasks
+        : renderPayload.task
+          ? [renderPayload.task]
+          : [];
+      const submittedTaskId = submittedTasks[submittedTasks.length - 1]?.id ?? renderPayload.taskId;
+      if (!submittedTaskId) throw new Error("Render task id missing");
+
+      if (submittedTasks.length > 0) {
+        const submittedIds = new Set(submittedTasks.map((task) => task.id));
+        setRenderTasks((tasks) => [...submittedTasks, ...tasks.filter((task) => !submittedIds.has(task.id))]);
+      }
+      setCurrentTaskId(submittedTaskId);
+      setStatus(
+        renderPayload.autoStarted === false
+          ? "任务已提交，等待 Render Worker 接管..."
+          : `已提交 ${submittedTasks.length || 1} 个成片任务，后台渲染中...`,
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("一键生产失败: " + message);
+      setGenerating(false);
+    } finally {
+      setFullWorkflowRunning(false);
+      await loadRenderTasks();
+    }
+  };
+
   const handleRetryRenderTask = async (taskId: string) => {
     setRetryingTaskId(taskId);
     setGenerating(true);
@@ -1490,6 +1661,7 @@ export default function Home() {
       : digitalHumanConfig.provider === "musetalk-cli"
         ? Boolean(selectedDigitalHumanProfile.avatarPath || digitalHumanConfig.avatarPath)
         : false;
+  const productionDigitalHumanReady = digitalHumanConfig.provider !== "placeholder" && digitalHumanReadyForProduction;
   const digitalHumanConfigHasUnsavedChanges =
     digitalHumanDraft.provider !== digitalHumanConfig.provider
     || digitalHumanDraft.endpoint !== digitalHumanConfig.endpoint
@@ -1875,6 +2047,30 @@ export default function Home() {
                 })}
               </div>
             </div>
+
+            <div className="mt-5 border-t border-white/5 pt-4">
+              <button
+                className="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={fullWorkflowRunning || generating}
+                onClick={handleRunProductionWorkflow}
+                type="button"
+              >
+                <Play className="h-4 w-4" />
+                {fullWorkflowRunning
+                  ? "生产中..."
+                  : productionDigitalHumanReady
+                    ? `一键生成 ${count} 条视频`
+                    : "先接入数字人再生成"}
+              </button>
+              <div className="mt-2 text-xs leading-5 text-white/45">
+                系统会自动完成文案、分镜编排、选材、数字人口播和成片提交。
+              </div>
+              {!productionDigitalHumanReady && (
+                <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+                  当前没有可交付数字人服务。请在系统设置接入 HTTP 数字人 API 或本地 MuseTalk，再提交正式生产。
+                </div>
+              )}
+            </div>
           </section>
 
           <section className={cardBase}>
@@ -1883,14 +2079,28 @@ export default function Home() {
                 <h2 className="text-sm font-semibold text-white">自动工作流</h2>
                 <p className="mt-1 text-xs text-white/50">文案、分镜、选材、数字人和成片按隐藏流程执行。</p>
               </div>
-              <button
-                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/[0.07] hover:text-white"
-                onClick={() => setShowSystemSettings(true)}
-                type="button"
-              >
-                <Settings className="h-3.5 w-3.5" />
-                设置
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/[0.07] hover:text-white"
+                  onClick={() => setShowSystemSettings(true)}
+                  type="button"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  设置
+                </button>
+                <button
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                    showAdvancedWorkflow
+                      ? "border-[#ff3b5c]/40 bg-[#ff3b5c]/10 text-white"
+                      : "border-white/10 bg-white/[0.03] text-white/70 hover:bg-white/[0.07] hover:text-white"
+                  }`}
+                  onClick={() => setShowAdvancedWorkflow((current) => !current)}
+                  type="button"
+                >
+                  <MonitorCog className="h-3.5 w-3.5" />
+                  高级详情
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -1931,54 +2141,56 @@ export default function Home() {
             </div>
           </section>
 
-          <section className={cardBase}>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white">生产链路</h2>
-              <span className="rounded-full border border-[#ff3b5c]/30 bg-[#ff3b5c]/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-[#ff3b5c]">
-                MVP
-              </span>
-            </div>
-            <div className="relative space-y-2">
-              {pipeline.map((step, index) => {
-                const StepIcon = step.icon;
-                const active = index === activeStepIndex;
-                const complete = generating && activeStepIndex > index;
-                return (
-                  <div
-                    className={`relative rounded-xl border p-3 transition ${
-                      active
-                        ? "border-[#ff3b5c]/40 bg-gradient-to-r from-[#ff3b5c]/10 to-[#a855f7]/5"
-                        : complete
-                          ? "border-emerald-400/20 bg-emerald-400/5"
-                          : "border-white/8 bg-white/[0.02]"
-                    }`}
-                    key={step.name}
-                  >
-                    {active && (
-                      <div className="absolute inset-0 rounded-xl shimmer opacity-40 pointer-events-none" />
-                    )}
-                    <div className="relative flex items-start gap-3">
-                      <div
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                          active
-                            ? "bg-gradient-to-br from-[#ff3b5c] to-[#a855f7] text-white shadow-lg shadow-[#ff3b5c]/40"
-                            : complete
-                              ? "bg-emerald-400/20 text-emerald-300"
-                              : "bg-white/5 text-white/40"
-                        }`}
-                      >
-                        <StepIcon className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-white">{step.name}</div>
-                        <div className="mt-0.5 text-xs text-white/50">{step.detail}</div>
+          {showAdvancedWorkflow && (
+            <section className={cardBase}>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-white">生产链路</h2>
+                <span className="rounded-full border border-[#ff3b5c]/30 bg-[#ff3b5c]/10 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-[#ff3b5c]">
+                  高级
+                </span>
+              </div>
+              <div className="relative space-y-2">
+                {pipeline.map((step, index) => {
+                  const StepIcon = step.icon;
+                  const active = index === activeStepIndex;
+                  const complete = generating && activeStepIndex > index;
+                  return (
+                    <div
+                      className={`relative rounded-xl border p-3 transition ${
+                        active
+                          ? "border-[#ff3b5c]/40 bg-gradient-to-r from-[#ff3b5c]/10 to-[#a855f7]/5"
+                          : complete
+                            ? "border-emerald-400/20 bg-emerald-400/5"
+                            : "border-white/8 bg-white/[0.02]"
+                      }`}
+                      key={step.name}
+                    >
+                      {active && (
+                        <div className="absolute inset-0 rounded-xl shimmer opacity-40 pointer-events-none" />
+                      )}
+                      <div className="relative flex items-start gap-3">
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                            active
+                              ? "bg-gradient-to-br from-[#ff3b5c] to-[#a855f7] text-white shadow-lg shadow-[#ff3b5c]/40"
+                              : complete
+                                ? "bg-emerald-400/20 text-emerald-300"
+                                : "bg-white/5 text-white/40"
+                          }`}
+                        >
+                          <StepIcon className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-white">{step.name}</div>
+                          <div className="mt-0.5 text-xs text-white/50">{step.detail}</div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </aside>
 
         <section className="min-w-0 space-y-5">
@@ -2612,6 +2824,8 @@ export default function Home() {
             </div>
           </section>
 
+          {showAdvancedWorkflow && (
+            <>
           <section className={cardBase}>
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
@@ -2996,6 +3210,8 @@ export default function Home() {
               </div>
             )}
           </section>
+            </>
+          )}
 
           <section className={cardBase}>
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -3077,15 +3293,26 @@ export default function Home() {
               </div>
             )}
             <div className="mt-4 grid grid-cols-1 gap-2">
-              <button
-                className="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={generating || selectedAssets.length === 0}
-                onClick={handleGenerate}
-                type="button"
-              >
-                <Play className="h-4 w-4" />
-                {generating ? "生成中..." : `生成 ${count} 条视频`}
-              </button>
+              {showAdvancedWorkflow ? (
+                <button
+                  className="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={generating || selectedAssets.length === 0}
+                  onClick={handleGenerate}
+                  type="button"
+                >
+                  <Play className="h-4 w-4" />
+                  {generating ? "生成中..." : "手动提交成片任务"}
+                </button>
+              ) : (
+                <button
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/[0.07] hover:text-white"
+                  onClick={() => setShowAdvancedWorkflow(true)}
+                  type="button"
+                >
+                  <MonitorCog className="h-4 w-4" />
+                  查看高级步骤
+                </button>
+              )}
               <button
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/80 hover:bg-white/[0.07] hover:text-white transition"
                 onClick={() => {
