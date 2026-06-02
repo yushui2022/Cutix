@@ -268,6 +268,22 @@ type DigitalHumanPreview = {
   totalDurationMs: number;
 };
 
+type DigitalHumanReadinessCheck = {
+  key: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  message: string;
+};
+
+type DigitalHumanReadinessResult = {
+  provider: DigitalHumanProvider;
+  brandId?: string;
+  roleName?: string;
+  productionReady: boolean;
+  checks: DigitalHumanReadinessCheck[];
+  generatedAt: string;
+};
+
 type RenderTask = {
   id: string;
   status: "queued" | "running" | "completed" | "failed" | "canceled";
@@ -469,6 +485,18 @@ const digitalHumanProviderLabel: Record<DigitalHumanProvider, string> = {
   "http-api": "HTTP 数字人 API",
 };
 
+const digitalHumanReadinessStatusLabel: Record<DigitalHumanReadinessCheck["status"], string> = {
+  pass: "通过",
+  warn: "提醒",
+  fail: "未通过",
+};
+
+const digitalHumanReadinessTone: Record<DigitalHumanReadinessCheck["status"], string> = {
+  pass: "border-emerald-300/20 bg-emerald-300/10 text-emerald-100",
+  warn: "border-amber-300/20 bg-amber-300/10 text-amber-100",
+  fail: "border-red-300/20 bg-red-300/10 text-red-100",
+};
+
 function digitalHumanProfileForBrand(brand: IP): BrandDigitalHumanProfile {
   return {
     roleName: brand.digitalHuman?.roleName || `${brand.name}数字人`,
@@ -529,6 +557,8 @@ export default function Home() {
   const [ttsPreview, setTtsPreview] = useState<TtsPreview | null>(null);
   const [digitalHumanGenerating, setDigitalHumanGenerating] = useState(false);
   const [digitalHumanPreview, setDigitalHumanPreview] = useState<DigitalHumanPreview | null>(null);
+  const [digitalHumanTesting, setDigitalHumanTesting] = useState(false);
+  const [digitalHumanTestResult, setDigitalHumanTestResult] = useState<DigitalHumanReadinessResult | null>(null);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
@@ -989,10 +1019,48 @@ export default function Home() {
         pythonPath: nextConfig.pythonPath,
         apiKey: "",
       });
+      setDigitalHumanTestResult(null);
       setStatus(`已保存数字人接入：${digitalHumanProviderLabel[nextConfig.provider]}`);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("数字人接入保存失败: " + message);
+    }
+  };
+
+  const handleTestDigitalHumanConfig = async () => {
+    if (digitalHumanConfigHasUnsavedChanges) {
+      setStatus("数字人接入有未保存变更，请先保存后再检查");
+      return;
+    }
+
+    setDigitalHumanTesting(true);
+    setStatus("正在检查已保存的数字人接入...");
+
+    try {
+      const res = await fetch("/api/digital-human-config/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brand: selectedIP,
+          network: true,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as DigitalHumanReadinessResult;
+      setDigitalHumanTestResult(payload);
+      const failCount = payload.checks.filter((item) => item.status === "fail").length;
+      const warnCount = payload.checks.filter((item) => item.status === "warn").length;
+      setStatus(
+        payload.productionReady
+          ? `数字人接入检查通过：${digitalHumanProviderLabel[payload.provider]}`
+          : `数字人接入未就绪：${failCount} 个失败，${warnCount} 个提醒`,
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("数字人接入检查失败: " + message);
+    } finally {
+      setDigitalHumanTesting(false);
     }
   };
 
@@ -1322,6 +1390,12 @@ export default function Home() {
       : digitalHumanConfig.provider === "musetalk-cli"
         ? Boolean(selectedDigitalHumanProfile.avatarPath || digitalHumanConfig.avatarPath)
         : false;
+  const digitalHumanConfigHasUnsavedChanges =
+    digitalHumanDraft.provider !== digitalHumanConfig.provider
+    || digitalHumanDraft.endpoint !== digitalHumanConfig.endpoint
+    || digitalHumanDraft.avatarPath !== digitalHumanConfig.avatarPath
+    || digitalHumanDraft.pythonPath !== digitalHumanConfig.pythonPath
+    || Boolean(digitalHumanDraft.apiKey.trim());
   const healthyWorkerCount = workerStatus?.healthyWorkers.length ?? 0;
   const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
   const storyboardScenes = scriptPreview?.videoPlan?.scenes ?? scriptPreview?.scenes ?? [];
@@ -1567,7 +1641,71 @@ export default function Home() {
                     清除 Key
                   </button>
                 )}
+                <button
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/70 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={digitalHumanTesting}
+                  onClick={handleTestDigitalHumanConfig}
+                  type="button"
+                >
+                  <RefreshCcw className={`h-4 w-4 ${digitalHumanTesting ? "animate-spin" : ""}`} />
+                  {digitalHumanTesting ? "检查中..." : "检查接入"}
+                </button>
               </div>
+              {digitalHumanConfigHasUnsavedChanges && (
+                <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+                  当前有未保存的数字人接入变更，检查前请先保存，否则检测结果不会反映最新配置。
+                </div>
+              )}
+              {digitalHumanTestResult && (
+                <div
+                  className={`mt-4 rounded-xl border p-3 ${
+                    digitalHumanTestResult.productionReady
+                      ? "border-emerald-300/20 bg-emerald-300/10"
+                      : "border-red-300/20 bg-red-300/10"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-semibold text-white">
+                        {digitalHumanTestResult.productionReady ? "生产接入已就绪" : "生产接入未就绪"}
+                      </div>
+                      <div className="mt-1 text-[11px] text-white/45">
+                        {digitalHumanProviderLabel[digitalHumanTestResult.provider]} ·{" "}
+                        {new Date(digitalHumanTestResult.generatedAt).toLocaleString("zh-CN", { hour12: false })}
+                      </div>
+                    </div>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                        digitalHumanTestResult.productionReady
+                          ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                          : "border-red-300/20 bg-red-300/10 text-red-100"
+                      }`}
+                    >
+                      {digitalHumanTestResult.productionReady ? "可交付" : "需处理"}
+                    </span>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {digitalHumanTestResult.checks.map((item) => (
+                      <div
+                        className="rounded-lg border border-white/8 bg-black/15 p-2.5"
+                        key={`${item.key}-${item.label}`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-white/85">{item.label}</span>
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                              digitalHumanReadinessTone[item.status]
+                            }`}
+                          >
+                            {digitalHumanReadinessStatusLabel[item.status]}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[11px] leading-5 text-white/50">{item.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </section>
           </div>
         </section>
