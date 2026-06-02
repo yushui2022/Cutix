@@ -19,6 +19,7 @@ export async function GET() {
         running: tasks.filter((task) => task.status === "running").length,
         completed: tasks.filter((task) => task.status === "completed").length,
         failed: tasks.filter((task) => task.status === "failed").length,
+        canceled: tasks.filter((task) => task.status === "canceled").length,
       },
       generatedAt: new Date().toISOString(),
     },

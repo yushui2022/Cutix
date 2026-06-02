@@ -256,7 +256,7 @@ type DigitalHumanPreview = {
 
 type RenderTask = {
   id: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "canceled";
   stage: string;
   brandName: string;
   templateName: string;
@@ -292,6 +292,7 @@ type WorkerStatusPayload = {
     running: number;
     completed: number;
     failed: number;
+    canceled: number;
   };
   generatedAt: string;
 };
@@ -318,6 +319,30 @@ const defaultDigitalHumanConfig: PublicDigitalHumanConfig = {
   pythonPath: "python",
   apiKeySet: false,
   apiKeyPreview: "",
+};
+
+const renderTaskStatusStyles: Record<RenderTask["status"], string> = {
+  queued: "border-amber-300/25 bg-amber-300/10 text-amber-100",
+  running: "border-[#ff3b5c]/30 bg-[#ff3b5c]/10 text-[#ff3b5c]",
+  completed: "border-emerald-300/20 bg-emerald-300/10 text-emerald-100",
+  failed: "border-red-300/20 bg-red-300/10 text-red-100",
+  canceled: "border-white/15 bg-white/[0.04] text-white/45",
+};
+
+const renderTaskStatusLabels: Record<RenderTask["status"], string> = {
+  queued: "排队",
+  running: "运行",
+  completed: "完成",
+  failed: "失败",
+  canceled: "取消",
+};
+
+const currentRenderTaskStatusLabels: Record<RenderTask["status"], string> = {
+  queued: "排队中",
+  running: "后台渲染中",
+  completed: "已完成",
+  failed: "失败",
+  canceled: "已取消",
 };
 
 const seedIps: IP[] = defaultBrands;
@@ -486,6 +511,7 @@ export default function Home() {
   const [status, setStatus] = useState("待生成");
   const [currentTaskId, setCurrentTaskId] = useState("");
   const [retryingTaskId, setRetryingTaskId] = useState("");
+  const [cancelingTaskId, setCancelingTaskId] = useState("");
   const [renderTasks, setRenderTasks] = useState<RenderTask[]>([]);
   const [workerStatus, setWorkerStatus] = useState<WorkerStatusPayload | null>(null);
   const [resultUrl, setResultUrl] = useState("");
@@ -664,6 +690,12 @@ export default function Home() {
       return;
     }
 
+    if (currentRenderTask?.status === "canceled") {
+      setStatus("任务已取消");
+      setGenerating(false);
+      return;
+    }
+
     let cancelled = false;
     const syncCurrentTask = async () => {
       const tasks = await loadRenderTasks();
@@ -683,6 +715,12 @@ export default function Home() {
 
       if (task.status === "failed") {
         setStatus(`失败: ${task.error || task.stage}`);
+        setGenerating(false);
+        return;
+      }
+
+      if (task.status === "canceled") {
+        setStatus("任务已取消");
         setGenerating(false);
         return;
       }
@@ -1177,6 +1215,34 @@ export default function Home() {
     } finally {
       setRetryingTaskId("");
       await loadRenderTasks();
+    }
+  };
+
+  const handleCancelRenderTask = async (taskId: string) => {
+    setCancelingTaskId(taskId);
+    setStatus("正在取消排队任务...");
+
+    try {
+      const res = await fetch(`/api/render-tasks/${encodeURIComponent(taskId)}/cancel`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as { task?: RenderTask; taskId?: string };
+      if (payload.task) {
+        setRenderTasks((tasks) => tasks.map((task) => (task.id === taskId ? payload.task as RenderTask : task)));
+      }
+      if (currentTaskId === taskId) {
+        setGenerating(false);
+        setStatus("任务已取消");
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("取消失败: " + message);
+    } finally {
+      setCancelingTaskId("");
+      await loadRenderTasks();
+      await loadWorkerStatus();
     }
   };
 
@@ -2461,11 +2527,7 @@ export default function Home() {
                 <div className="font-semibold">当前任务：{currentTaskId}</div>
                 {currentRenderTask && (
                   <div className="mt-1 text-cyan-100/75">
-                    {currentRenderTask.status === "completed"
-                      ? "已完成"
-                      : currentRenderTask.status === "failed"
-                        ? "失败"
-                        : "后台渲染中"} · {currentRenderTask.stage}
+                    {currentRenderTaskStatusLabels[currentRenderTask.status]} · {currentRenderTask.stage}
                   </div>
                 )}
               </div>
@@ -2477,41 +2539,47 @@ export default function Home() {
                   <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3" key={task.id}>
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <span className="truncate text-xs font-semibold text-white">{task.brandName}</span>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
-                        task.status === "completed"
-                          ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
-                          : task.status === "failed"
-                            ? "border-red-300/20 bg-red-300/10 text-red-100"
-                            : "border-[#ff3b5c]/30 bg-[#ff3b5c]/10 text-[#ff3b5c]"
-                      }`}
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${renderTaskStatusStyles[task.status]}`}
                       >
-                        {task.status === "completed" ? "完成" : task.status === "failed" ? "失败" : "运行"}
+                        {renderTaskStatusLabels[task.status]}
                       </span>
                     </div>
                     <div className="text-[11px] text-white/45">
                       {task.platform} · {task.templateName} · {task.createdAt.slice(5, 16).replace("T", " ")}
                     </div>
                     <div className="mt-1 line-clamp-1 text-[11px] text-white/55">{task.stage}</div>
-                    {task.previewUrl && (
-                      <a
-                        className="mt-2 inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white"
-                        href={task.previewUrl}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        查看预览
-                      </a>
-                    )}
-                    {task.payloadStored && (task.status === "failed" || task.status === "completed") && (
-                      <button
-                        className="ml-2 mt-2 inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                        disabled={retryingTaskId === task.id}
-                        onClick={() => void handleRetryRenderTask(task.id)}
-                        type="button"
-                      >
-                        {retryingTaskId === task.id ? "提交中..." : task.status === "failed" ? "重试" : "重渲染"}
-                      </button>
-                    )}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {task.previewUrl && (
+                        <a
+                          className="inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white"
+                          href={task.previewUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          查看预览
+                        </a>
+                      )}
+                      {task.status === "queued" && (
+                        <button
+                          className="inline-flex rounded-lg border border-amber-300/20 px-2 py-1 text-[11px] font-semibold text-amber-100/75 transition hover:bg-amber-300/10 hover:text-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={cancelingTaskId === task.id}
+                          onClick={() => void handleCancelRenderTask(task.id)}
+                          type="button"
+                        >
+                          {cancelingTaskId === task.id ? "取消中..." : "取消"}
+                        </button>
+                      )}
+                      {task.payloadStored && (task.status === "failed" || task.status === "completed") && (
+                        <button
+                          className="inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={retryingTaskId === task.id}
+                          onClick={() => void handleRetryRenderTask(task.id)}
+                          type="button"
+                        >
+                          {retryingTaskId === task.id ? "提交中..." : task.status === "failed" ? "重试" : "重渲染"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

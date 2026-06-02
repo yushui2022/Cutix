@@ -32,6 +32,7 @@
 24. 已完成任务 payload 持久化与重试 MVP：新建任务会把完整渲染请求写入 `platform/data/render-task-payloads/`，失败/完成任务可通过 retry API 重新提交，前端任务卡显示“重试/重渲染”入口。
 25. 已完成独立 Render Worker CLI MVP：`npm run worker:render` 会轮询 queued 任务、读取持久化 payload 并调用统一 runner 执行；`CUTIX_RENDER_AUTOSTART=false` 可让 API 只创建任务，由 Worker 接管执行。
 26. 已完成 Worker 监控 MVP：Render Worker 会写入本地心跳状态，`GET /api/worker-status` 返回 Worker 健康状态和队列统计，前端顶部 Worker/队列数字已改为真实数据。
+27. 已完成排队任务取消 MVP：新增 `POST /api/render-tasks/[taskId]/cancel`，只允许取消仍处于 `queued` 的任务；前端最近任务卡可直接取消排队任务，Worker 和进程内队列会跳过已取消任务。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -403,8 +404,9 @@ worker_events   — Worker 日志
 - `count` 已接入任务创建：一次点击可以创建多条后台任务，当前 MVP 按队列顺序执行；前端会同步返回的任务列表，并把当前任务指向整批队列的最后一条，用于持续显示整批生成状态。
 - 新增任务 payload 持久化与 retry API：新任务保存完整请求 payload，`POST /api/render-tasks/[taskId]/retry` 可读回 payload 并重置任务状态，前端对可恢复任务显示“重试/重渲染”按钮。
 - 新增独立 Render Worker CLI：`npm run worker:render` 持续轮询 queued 任务，`npm run worker:render:once` 可跑一次空队列/单任务检查；设置 `CUTIX_RENDER_AUTOSTART=false` 后，API 不再自动执行任务，方便切到 Worker 模式。
-- 新增 Worker 心跳与状态 API：`platform/data/worker-state/` 记录 Worker 在线、空闲/处理中、当前任务和处理数量；`GET /api/worker-status` 汇总 Worker 健康状态和 queued/running/failed 队列数，前端顶部不再硬编码 Worker 数。
+- 新增 Worker 心跳与状态 API：`platform/data/worker-state/` 记录 Worker 在线、空闲/处理中、当前任务和处理数量；`GET /api/worker-status` 汇总 Worker 健康状态和 queued/running/failed/canceled 队列数，前端顶部不再硬编码 Worker 数。
+- 新增排队任务取消 MVP：`POST /api/render-tasks/[taskId]/cancel` 会把还没进入渲染的任务标记为 `canceled`；前端任务卡显示“取消”按钮和取消状态，进程内批量队列与独立 Render Worker 都会跳过已取消任务。
 
 ### 下一步
 
-- 这一步仍是本地 Node 进程内后台任务，不是最终生产队列。下一步应把任务执行从 Next.js API Route 中拆出为独立 Render Worker，并接入 Redis/BullMQ，实现多 Worker 并发、失败重试、任务取消和 Worker 监控。
+- 这一步仍是本地文件台账 + Node Worker 的 MVP，不是最终生产队列。下一步应接入 Redis/BullMQ，实现多 Worker 并发、运行中任务超时/中断、失败重试策略和完整错误日志。

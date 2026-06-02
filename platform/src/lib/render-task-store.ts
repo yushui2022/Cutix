@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 
-export type RenderTaskStatus = "queued" | "running" | "completed" | "failed";
+export type RenderTaskStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 
 export type RenderTask = {
   id: string;

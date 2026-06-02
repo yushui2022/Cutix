@@ -1,10 +1,14 @@
-import { updateRenderTask } from "./render-task-store";
+import { readRenderTask, updateRenderTask } from "./render-task-store";
 import type { RenderTaskPayload } from "./render-task-payload-store";
 
 const activeRenderTaskIds = new Set<string>();
 
 export async function drainRenderTaskStream(origin: string, taskId: string, payload: RenderTaskPayload) {
   if (activeRenderTaskIds.has(taskId)) return;
+
+  const task = await readRenderTask(taskId);
+  if (task?.status === "canceled") return;
+
   activeRenderTaskIds.add(taskId);
 
   try {
@@ -42,7 +46,11 @@ export async function drainRenderTaskBatch(
   jobs: Array<{ taskId: string; payload: RenderTaskPayload; index: number; total: number }>,
 ) {
   for (const job of jobs) {
+    const task = await readRenderTask(job.taskId);
+    if (task?.status === "canceled") continue;
+
     await updateRenderTask(job.taskId, {
+      status: "running",
       stage: job.total > 1 ? `后台队列执行中 (${job.index}/${job.total})` : "后台渲染中",
     });
     await drainRenderTaskStream(origin, job.taskId, job.payload);

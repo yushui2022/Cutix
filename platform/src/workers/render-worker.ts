@@ -1,4 +1,4 @@
-import { listRenderTasks, updateRenderTask } from "../lib/render-task-store";
+import { listRenderTasks, readRenderTask, updateRenderTask } from "../lib/render-task-store";
 import { readRenderTaskPayload } from "../lib/render-task-payload-store";
 import { drainRenderTaskStream } from "../lib/render-task-runner";
 import { writeWorkerState } from "../lib/worker-state-store";
@@ -54,8 +54,14 @@ async function processNextTask() {
     return true;
   }
 
+  const latestTask = await readRenderTask(task.id);
+  if (latestTask?.status !== "queued") {
+    await heartbeat("idle");
+    return true;
+  }
+
   await updateRenderTask(task.id, {
-    status: "queued",
+    status: "running",
     stage: "独立 Worker 已接管",
   });
   console.log(`[render-worker] start ${task.id}`);
