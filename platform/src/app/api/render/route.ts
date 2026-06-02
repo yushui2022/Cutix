@@ -128,6 +128,7 @@ type RenderProps = {
 };
 
 type RenderRequest = {
+  taskId?: string;
   ipId?: string;
   brand?: BrandInput;
   template?: {
@@ -457,21 +458,24 @@ export async function POST(request: NextRequest) {
   const data = typeof body === "object" && body !== null ? body as RenderRequest : {};
   const ipId = data.ipId ?? data.brand?.id ?? "wang";
   const brand = brandFromRequest(ipId, data.brand);
-  const taskId = `task_${ipId}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+  const providedTaskId = typeof data.taskId === "string" && data.taskId.trim() ? data.taskId.trim() : "";
+  const taskId = providedTaskId || `task_${ipId}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 
   if (!ipConfigs[ipId] && !data.brand) {
     return Response.json({ error: "Unknown IP" }, { status: 400 });
   }
 
-  await createRenderTask({
-    id: taskId,
-    brandId: ipId,
-    brandName: brand.name,
-    templateId: data.template?.id ?? "default",
-    templateName: data.template?.name ?? "默认模板",
-    platform: data.script?.platform ?? "未知平台",
-    videoPlanId: data.script?.videoPlan?.id,
-  });
+  if (!providedTaskId) {
+    await createRenderTask({
+      id: taskId,
+      brandId: ipId,
+      brandName: brand.name,
+      templateId: data.template?.id ?? "default",
+      templateName: data.template?.name ?? "默认模板",
+      platform: data.script?.platform ?? "未知平台",
+      videoPlanId: data.script?.videoPlan?.id,
+    });
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({

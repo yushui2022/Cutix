@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import {
   Activity,
@@ -465,16 +465,19 @@ export default function Home() {
   const [previewUrl, setPreviewUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
 
-  const loadRenderTasks = async () => {
+  const loadRenderTasks = useCallback(async () => {
     try {
       const res = await fetch("/api/render-tasks");
       if (!res.ok) throw new Error(await res.text());
       const payload = (await res.json()) as { tasks?: RenderTask[] };
-      setRenderTasks(Array.isArray(payload.tasks) ? payload.tasks : []);
+      const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+      setRenderTasks(tasks);
+      return tasks;
     } catch {
       setRenderTasks([]);
+      return [];
     }
-  };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -582,12 +585,82 @@ export default function Home() {
 
   useEffect(() => {
     void loadRenderTasks();
-  }, []);
+  }, [loadRenderTasks]);
 
   const selectedAssetList = useMemo(
     () => assets.filter((asset) => selectedAssets.includes(asset.id)),
     [assets, selectedAssets],
   );
+
+  const currentRenderTask = useMemo(
+    () => renderTasks.find((task) => task.id === currentTaskId),
+    [currentTaskId, renderTasks],
+  );
+
+  useEffect(() => {
+    if (!currentTaskId) return;
+
+    if (currentRenderTask?.status === "completed") {
+      setStatus("生成完成");
+      setResultUrl(currentRenderTask.resultUrl ?? "");
+      setPreviewUrl(currentRenderTask.previewUrl ?? "");
+      setCoverUrl(currentRenderTask.coverUrl ?? "");
+      setGenerating(false);
+      return;
+    }
+
+    if (currentRenderTask?.status === "failed") {
+      setStatus(`失败: ${currentRenderTask.error || currentRenderTask.stage}`);
+      setGenerating(false);
+      return;
+    }
+
+    let cancelled = false;
+    const syncCurrentTask = async () => {
+      const tasks = await loadRenderTasks();
+      if (cancelled) return;
+
+      const task = tasks.find((item) => item.id === currentTaskId);
+      if (!task) return;
+
+      if (task.status === "completed") {
+        setStatus("生成完成");
+        setResultUrl(task.resultUrl ?? "");
+        setPreviewUrl(task.previewUrl ?? "");
+        setCoverUrl(task.coverUrl ?? "");
+        setGenerating(false);
+        return;
+      }
+
+      if (task.status === "failed") {
+        setStatus(`失败: ${task.error || task.stage}`);
+        setGenerating(false);
+        return;
+      }
+
+      setStatus(task.stage || "后台渲染中...");
+      setGenerating(true);
+    };
+
+    void syncCurrentTask();
+    const timer = window.setInterval(() => {
+      void syncCurrentTask();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    currentRenderTask?.coverUrl,
+    currentRenderTask?.error,
+    currentRenderTask?.previewUrl,
+    currentRenderTask?.resultUrl,
+    currentRenderTask?.stage,
+    currentRenderTask?.status,
+    currentTaskId,
+    loadRenderTasks,
+  ]);
 
   const videoPlanScenesById = useMemo(
     () => new Map((scriptPreview?.videoPlan?.scenes ?? []).map((scene) => [scene.id, scene])),
@@ -954,22 +1027,6 @@ export default function Home() {
     }
   };
 
-  const processEventLine = (line: string) => {
-    if (!line.startsWith("data: ")) return;
-
-    try {
-      const data: unknown = JSON.parse(line.slice(6));
-      if (typeof data !== "object" || data === null) return;
-      if ("taskId" in data && typeof data.taskId === "string") setCurrentTaskId(data.taskId);
-      if ("status" in data && typeof data.status === "string") setStatus(data.status);
-      if ("resultUrl" in data && typeof data.resultUrl === "string") setResultUrl(data.resultUrl);
-      if ("previewUrl" in data && typeof data.previewUrl === "string") setPreviewUrl(data.previewUrl);
-      if ("coverUrl" in data && typeof data.coverUrl === "string") setCoverUrl(data.coverUrl);
-    } catch {
-      // Ignore incomplete stream chunks; the next chunk will carry the remainder.
-    }
-  };
-
   const handleGenerate = async () => {
     if (!scriptPreview || !ttsPreview || !digitalHumanPreview) {
       setStatus("请先完成分镜脚本、语音合成和数字人片段");
@@ -984,7 +1041,7 @@ export default function Home() {
     setCoverUrl("");
 
     try {
-      const res = await fetch("/api/render", {
+      const res = await fetch("/api/render-tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1005,28 +1062,21 @@ export default function Home() {
 
       if (!res.ok) throw new Error(await res.text());
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response stream");
+      const payload = (await res.json()) as { task?: RenderTask; taskId?: string };
+      const submittedTaskId = payload.task?.id ?? payload.taskId;
+      if (!submittedTaskId) throw new Error("Render task id missing");
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) processEventLine(line);
+      if (payload.task) {
+        setRenderTasks((tasks) => [payload.task as RenderTask, ...tasks.filter((task) => task.id !== submittedTaskId)]);
       }
-      if (buffer) processEventLine(buffer);
+      setCurrentTaskId(submittedTaskId);
+      setStatus("任务已提交，后台渲染中...");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("失败: " + message);
+      setGenerating(false);
     } finally {
       await loadRenderTasks();
-      setGenerating(false);
     }
   };
 
@@ -2299,7 +2349,16 @@ export default function Home() {
             </div>
             {currentTaskId && (
               <div className="mt-2 rounded-xl border border-cyan-300/15 bg-cyan-300/10 p-3 text-xs text-cyan-100">
-                当前任务：{currentTaskId}
+                <div className="font-semibold">当前任务：{currentTaskId}</div>
+                {currentRenderTask && (
+                  <div className="mt-1 text-cyan-100/75">
+                    {currentRenderTask.status === "completed"
+                      ? "已完成"
+                      : currentRenderTask.status === "failed"
+                        ? "失败"
+                        : "后台渲染中"} · {currentRenderTask.stage}
+                  </div>
+                )}
               </div>
             )}
             {renderTasks.length > 0 && (
@@ -2356,6 +2415,7 @@ export default function Home() {
                   setResultUrl("");
                   setPreviewUrl("");
                   setCoverUrl("");
+                  setGenerating(false);
                 }}
                 type="button"
               >

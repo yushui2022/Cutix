@@ -2,7 +2,7 @@
 
 ## 0. 当前推进状态
 
-更新时间：2026-06-01
+更新时间：2026-06-02
 
 当前仓库已经不再只是概念验证，`platform/` 内有一个可运行的 Next.js Web 控制台：
 
@@ -27,10 +27,11 @@
 19. 已完成 `videoPlan` 编排契约 MVP：`/api/script` 在兼容旧 `scenes` 的同时输出 `videoPlan`，包含全局节奏、BGM 情绪、每段画面目标、数字人位置、素材槽位、字幕策略和转场；`/api/selection` 和 `/api/render` 已开始消费该编排计划。
 20. 已完成 `videoPlan` 版本化与本地持久化 MVP：每次生成会带 `id`、`schemaVersion = cutix.video_plan.v1`、`createdAt`，并写入 `platform/data/video-plans/`，用于后续失败重试、替换素材后复用同一编排。
 21. 已完成生成任务台账 MVP：`/api/render` 会创建 render task，持续写入 `platform/data/render-tasks/`，记录 `videoPlan.id`、阶段、结果 URL 和失败原因；前端任务状态卡可查看最近任务。
+22. 已完成进程内后台任务提交 MVP：`POST /api/render-tasks` 会先创建任务并立即返回 `taskId`，再在服务端后台消费现有 `/api/render` 渲染流；前端提交任务后轮询台账，完成后自动显示预览和下载。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 把生成任务台账升级为真正后台队列：`POST /api/render-tasks` 创建任务，Worker 进程异步渲染，前端轮询/订阅任务状态。
+1. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
 2. 把 `videoPlan` 从 MVP 校验升级为严格 JSON Schema：支持版本迁移、模型输出修复和人工锁定。
 3. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
 4. 增加 IP/品牌、标签体系、模板包的后台管理页面。
@@ -385,3 +386,17 @@ worker_events   — Worker 日志
 - [x] 确定本地 LLM 方案配置入口（vLLM / Ollama / OpenAI Compatible，MVP：用户自行填写 API）
 - [x] 确定数字人生产接入入口（HTTP API / MuseTalk CLI / 占位测试三模式）
 - [ ] 确定是否需要多租户/用户权限
+
+## 12. 2026-06-02 推进记录
+
+### 已完成：进程内后台生成任务 MVP
+
+- 新增 `POST /api/render-tasks`：前端提交成片生成后，接口先创建 render task 台账并立即返回 `202 + taskId`，用户不再需要等待 `/api/render` 的 SSE 长连接结束。
+- `/api/render` 支持传入已有 `taskId`：后台任务入口可以复用同一个任务记录，避免重复创建台账。
+- 后台入口会在服务端消费 `/api/render` 的 SSE 流：Remotion 渲染、FFmpeg 后处理和失败原因仍然写入 `platform/data/render-tasks/`。
+- 前端生成按钮改为提交后台任务并轮询 `GET /api/render-tasks`：任务完成后自动同步 `resultUrl`、`previewUrl`、`coverUrl` 并显示预览/下载。
+- 当前任务卡补充展示后台阶段和完成/失败状态。
+
+### 下一步
+
+- 这一步仍是本地 Node 进程内后台任务，不是最终生产队列。下一步应把任务执行从 Next.js API Route 中拆出为独立 Render Worker，并接入 Redis/BullMQ，实现多 Worker 并发、失败重试、任务取消和 Worker 监控。
