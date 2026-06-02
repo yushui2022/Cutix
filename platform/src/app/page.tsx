@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { defaultBrands, defaultTemplates } from "@/lib/default-config";
 import { tagTaxonomy } from "@/lib/tag-taxonomy";
+import type { TagCategory } from "@/lib/tag-taxonomy";
 import type { LucideIcon } from "lucide-react";
 
 type IP = {
@@ -378,8 +379,6 @@ const currentRenderTaskStatusLabels: Record<RenderTask["status"], string> = {
 
 const seedIps: IP[] = defaultBrands;
 const seedTemplates: Template[] = defaultTemplates;
-const taxonomyTags = tagTaxonomy.flatMap((category) => category.tags);
-const taxonomyTagSet = new Set(taxonomyTags);
 const alphaPreviewStyle = {
   backgroundColor: "#111827",
   backgroundImage:
@@ -546,6 +545,9 @@ export default function Home() {
   const [showSystemSettings, setShowSystemSettings] = useState(false);
   const [selectedAssets, setSelectedAssets] = useState<string[]>(["store", "product", "avatar"]);
   const [activeTagFilter, setActiveTagFilter] = useState("");
+  const [tagCategories, setTagCategories] = useState<TagCategory[]>(tagTaxonomy);
+  const [editingTagCategoryId, setEditingTagCategoryId] = useState("");
+  const [tagSystemDraft, setTagSystemDraft] = useState("");
   const [assets, setAssets] = useState<Asset[]>(seedAssets);
   const [targetPlatform, setTargetPlatform] = useState(platforms[0]);
   const [copyMode, setCopyMode] = useState(copyModes[0].id);
@@ -690,6 +692,25 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
 
+    fetch("/api/tag-taxonomy")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load tag taxonomy"))))
+      .then((payload: { categories?: TagCategory[] }) => {
+        if (!cancelled && Array.isArray(payload.categories) && payload.categories.length > 0) {
+          setTagCategories(payload.categories);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("标签体系加载失败，当前使用默认标签");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
     fetch("/api/assets")
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load assets"))))
       .then((payload: { assets?: Asset[] }) => {
@@ -723,6 +744,8 @@ export default function Home() {
     () => assets.filter((asset) => selectedAssets.includes(asset.id)),
     [assets, selectedAssets],
   );
+  const taxonomyTags = useMemo(() => tagCategories.flatMap((category) => category.tags), [tagCategories]);
+  const taxonomyTagSet = useMemo(() => new Set(taxonomyTags), [taxonomyTags]);
   const visibleAssets = useMemo(
     () => (activeTagFilter ? assets.filter((asset) => asset.tags.includes(activeTagFilter)) : assets),
     [activeTagFilter, assets],
@@ -739,7 +762,13 @@ export default function Home() {
     const usedTaxonomyTagCount = taxonomyTags.filter((tag) => (tagUsageCount[tag] ?? 0) > 0).length;
     const customTagCount = Object.keys(tagUsageCount).filter((tag) => !taxonomyTagSet.has(tag)).length;
     return { taggedAssetCount, usedTaxonomyTagCount, customTagCount };
-  }, [assets, tagUsageCount]);
+  }, [assets, tagUsageCount, taxonomyTags, taxonomyTagSet]);
+
+  useEffect(() => {
+    if (activeTagFilter && !taxonomyTagSet.has(activeTagFilter)) {
+      setActiveTagFilter("");
+    }
+  }, [activeTagFilter, taxonomyTagSet]);
 
   const currentRenderTask = useMemo(
     () => renderTasks.find((task) => task.id === currentTaskId),
@@ -932,6 +961,56 @@ export default function Home() {
     await patchAsset(asset, { tags });
     setEditingAssetId(null);
     setStatus(`已更新「${asset.name}」标签`);
+  };
+
+  const startEditingTagCategory = (category: TagCategory) => {
+    setEditingTagCategoryId(category.id);
+    setTagSystemDraft(category.tags.join("，"));
+  };
+
+  const saveTagCategory = async (category: TagCategory) => {
+    const tags = Array.from(
+      new Set(
+        tagSystemDraft
+          .split(/[,\s，、]+/u)
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      ),
+    ).slice(0, 80);
+
+    if (tags.length === 0) {
+      setStatus("标签组至少需要保留一个标签");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/tag-taxonomy", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: {
+            id: category.id,
+            tags,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as { categories?: TagCategory[] };
+      if (Array.isArray(payload.categories) && payload.categories.length > 0) {
+        setTagCategories(payload.categories);
+      } else {
+        setTagCategories((current) =>
+          current.map((item) => (item.id === category.id ? { ...item, tags } : item)),
+        );
+      }
+      setEditingTagCategoryId("");
+      setTagSystemDraft("");
+      setStatus(`已保存「${category.label}」标签体系`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("标签体系保存失败: " + message);
+    }
   };
 
   const toggleAssetEnabled = async (asset: Asset) => {
@@ -2128,42 +2207,85 @@ export default function Home() {
               </div>
 
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                {tagTaxonomy.map((category) => (
+                {tagCategories.map((category) => {
+                  const editingCategory = editingTagCategoryId === category.id;
+                  return (
                   <div className="rounded-xl border border-white/8 bg-black/15 p-3" key={category.id}>
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-xs font-semibold text-white">{category.label}</div>
                         <div className="mt-0.5 text-[11px] leading-4 text-white/40">{category.description}</div>
                       </div>
-                      <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-white/45">
-                        {category.tags.filter((tag) => (tagUsageCount[tag] ?? 0) > 0).length}/{category.tags.length}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-white/45">
+                          {category.tags.filter((tag) => (tagUsageCount[tag] ?? 0) > 0).length}/{category.tags.length}
+                        </span>
+                        <button
+                          className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/55 transition hover:bg-white/[0.06] hover:text-white"
+                          onClick={() => startEditingTagCategory(category)}
+                          type="button"
+                        >
+                          编辑
+                        </button>
+                      </div>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {category.tags.map((tag) => {
-                        const selected = activeTagFilter === tag;
-                        const countForTag = tagUsageCount[tag] ?? 0;
-                        return (
+
+                    {editingCategory ? (
+                      <div className="mt-3 border-t border-white/8 pt-3">
+                        <input
+                          className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white outline-none focus:border-[#ff3b5c]/60"
+                          onChange={(event) => setTagSystemDraft(event.target.value)}
+                          placeholder="用逗号分隔标签"
+                          value={tagSystemDraft}
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
                           <button
-                            className={`rounded-md border px-2 py-1 text-[11px] transition ${
-                              selected
-                                ? "border-[#ff3b5c]/50 bg-[#ff3b5c]/15 text-white"
-                                : countForTag > 0
-                                  ? "border-white/10 bg-white/[0.04] text-white/70 hover:text-white"
-                                  : "border-white/8 bg-white/[0.02] text-white/35 hover:text-white/60"
-                            }`}
-                            key={tag}
-                            onClick={() => setActiveTagFilter(selected ? "" : tag)}
+                            className="rounded-lg bg-[#ff3b5c] px-3 py-1.5 text-xs font-semibold text-white"
+                            onClick={() => saveTagCategory(category)}
                             type="button"
                           >
-                            {tag}
-                            <span className="ml-1 text-white/35">{countForTag}</span>
+                            保存标签组
                           </button>
-                        );
-                      })}
-                    </div>
+                          <button
+                            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/[0.06]"
+                            onClick={() => {
+                              setEditingTagCategoryId("");
+                              setTagSystemDraft("");
+                            }}
+                            type="button"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {category.tags.map((tag) => {
+                          const selected = activeTagFilter === tag;
+                          const countForTag = tagUsageCount[tag] ?? 0;
+                          return (
+                            <button
+                              className={`rounded-md border px-2 py-1 text-[11px] transition ${
+                                selected
+                                  ? "border-[#ff3b5c]/50 bg-[#ff3b5c]/15 text-white"
+                                  : countForTag > 0
+                                    ? "border-white/10 bg-white/[0.04] text-white/70 hover:text-white"
+                                    : "border-white/8 bg-white/[0.02] text-white/35 hover:text-white/60"
+                              }`}
+                              key={tag}
+                              onClick={() => setActiveTagFilter(selected ? "" : tag)}
+                              type="button"
+                            >
+                              {tag}
+                              <span className="ml-1 text-white/35">{countForTag}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
