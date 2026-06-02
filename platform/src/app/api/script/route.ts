@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
+import { buildVideoPlan, validateVideoPlan, type VideoPlan } from "@/lib/video-plan-schema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,52 +24,6 @@ type ScriptScene = {
   copy: string;
   visualTags: string[];
   needsDigitalHuman: boolean;
-};
-
-type VideoPlanMaterialSlot = {
-  slot: "broll" | "product" | "proof" | "background";
-  label: string;
-  requiredTypes: Array<"video" | "image">;
-  tags: string[];
-  purpose: string;
-  placement: "primary" | "support" | "background";
-};
-
-type VideoPlanScene = {
-  id: string;
-  role: ScriptScene["role"];
-  layout: ScriptScene["layout"];
-  durationSec: number;
-  narration: string;
-  visualGoal: string;
-  digitalHuman: {
-    enabled: boolean;
-    text: string;
-    placement: "full" | "top" | "bottom" | "voiceover";
-  };
-  materialSlots: VideoPlanMaterialSlot[];
-  subtitle: {
-    style: "bottom_bar" | "center_emphasis" | "minimal";
-    emphasis: string[];
-  };
-  transition: "cut" | "fade" | "slide" | "zoom";
-};
-
-type VideoPlan = {
-  id: string;
-  schemaVersion: "cutix.video_plan.v1";
-  version: 1;
-  createdAt: string;
-  aspectRatio: "9:16";
-  platform: string;
-  totalDurationSec: number;
-  global: {
-    pacing: "steady" | "fast" | "dramatic";
-    bgmMood: string;
-    subtitleStyle: "bottom_bar";
-    brandElements: string[];
-  };
-  scenes: VideoPlanScene[];
 };
 
 type GeneratedScript = {
@@ -105,7 +59,6 @@ type ScriptRequest = {
 
 const llmConfigFile = path.join(process.cwd(), "data", "llm-config.json");
 const videoPlanDir = path.join(process.cwd(), "data", "video-plans");
-const videoPlanSchemaVersion: VideoPlan["schemaVersion"] = "cutix.video_plan.v1";
 
 const defaultLlmConfig: StoredLlmConfig = {
   provider: "openai-compatible",
@@ -141,97 +94,15 @@ function uniqueTags(tags: string[]) {
   return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean))).slice(0, 8);
 }
 
-function digitalHumanPlacement(layout: ScriptScene["layout"]): VideoPlanScene["digitalHuman"]["placement"] {
-  if (layout === "full_dh") return "full";
-  if (layout === "dh_top_broll_bottom") return "top";
-  if (layout === "broll_top_dh_bottom") return "bottom";
-  return "voiceover";
-}
-
-function materialSlotsForScene(scene: ScriptScene): VideoPlanMaterialSlot[] {
-  if (scene.layout === "full_dh") return [];
-
-  return [
-    {
-      slot: scene.role === "proof" ? "proof" : scene.role === "solution" ? "product" : "broll",
-      label: scene.role === "proof" ? "证明素材" : scene.role === "solution" ? "产品/方案素材" : "场景 B-roll",
-      requiredTypes: ["video", "image"],
-      tags: uniqueTags(scene.visualTags.filter((tag) => !["数字人", "口播", "IP", "CTA", "结尾"].includes(tag))),
-      purpose: scene.role === "proof" ? "用真实案例或数据强化可信度" : "承接口播内容，提供画面证据",
-      placement: scene.layout === "full_broll" ? "primary" : "support",
-    },
-  ];
-}
-
-function sanitizeId(value: string) {
-  return value.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "plan";
-}
-
-function createVideoPlanId(script: Omit<GeneratedScript, "videoPlan">) {
-  return `vp_${sanitizeId(script.brandId)}_${sanitizeId(script.templateId)}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
-}
-
-function buildVideoPlan(script: Omit<GeneratedScript, "videoPlan">, input: Required<ScriptRequest>): VideoPlan {
-  return {
-    id: createVideoPlanId(script),
-    schemaVersion: videoPlanSchemaVersion,
-    version: 1,
-    createdAt: new Date().toISOString(),
-    aspectRatio: "9:16",
-    platform: script.platform,
-    totalDurationSec: script.scenes.reduce((sum, scene) => sum + scene.durationSec, 0),
-    global: {
-      pacing: input.targetPlatform === "小红书" ? "steady" : "fast",
-      bgmMood: input.brand.tone.includes("理性") ? "克制可信" : "商业节奏",
-      subtitleStyle: "bottom_bar",
-      brandElements: [input.brand.name, input.brand.industry, input.brand.promise],
-    },
-    scenes: script.scenes.map((scene, index) => ({
-      id: scene.id,
-      role: scene.role,
-      layout: scene.layout,
-      durationSec: scene.durationSec,
-      narration: scene.copy,
-      visualGoal: `${scene.role} 段落用 ${scene.visualTags.join("、") || "品牌"} 素材支撑口播`,
-      digitalHuman: {
-        enabled: scene.needsDigitalHuman,
-        text: scene.needsDigitalHuman ? scene.copy : "",
-        placement: digitalHumanPlacement(scene.layout),
-      },
-      materialSlots: materialSlotsForScene(scene),
-      subtitle: {
-        style: scene.role === "proof" ? "center_emphasis" : "bottom_bar",
-        emphasis: uniqueTags(scene.visualTags.slice(0, 3)),
-      },
-      transition: index === 0 ? "cut" : scene.role === "proof" ? "zoom" : "fade",
-    })),
-  };
-}
-
-function validateVideoPlan(plan: VideoPlan, script: Omit<GeneratedScript, "videoPlan">) {
-  if (plan.schemaVersion !== videoPlanSchemaVersion) return false;
-  if (plan.version !== 1 || plan.aspectRatio !== "9:16") return false;
-  if (!plan.id || !plan.createdAt) return false;
-  if (plan.platform !== script.platform) return false;
-  if (plan.scenes.length !== script.scenes.length) return false;
-
-  return script.scenes.every((scene, index) => {
-    const planned = plan.scenes[index];
-    return Boolean(planned)
-      && planned.id === scene.id
-      && planned.layout === scene.layout
-      && planned.role === scene.role
-      && planned.durationSec === scene.durationSec
-      && planned.digitalHuman.enabled === scene.needsDigitalHuman
-      && typeof planned.visualGoal === "string"
-      && Array.isArray(planned.materialSlots);
-  });
-}
-
 function attachVideoPlan(script: Omit<GeneratedScript, "videoPlan">, input: Required<ScriptRequest>): GeneratedScript {
-  const videoPlan = buildVideoPlan(script, input);
-  if (!validateVideoPlan(videoPlan, script)) {
-    throw new Error("videoPlan failed internal schema validation");
+  const videoPlan = buildVideoPlan(script, {
+    brand: input.brand,
+    template: input.template,
+    targetPlatform: input.targetPlatform,
+  });
+  const validation = validateVideoPlan(videoPlan, script);
+  if (!validation.valid) {
+    throw new Error(`videoPlan failed internal schema validation: ${validation.issues.join("; ")}`);
   }
 
   return {

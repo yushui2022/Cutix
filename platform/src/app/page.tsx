@@ -195,6 +195,11 @@ type AssetSelectionPreview = {
     filledSlots: number;
     ratio: number;
   };
+  videoPlan?: {
+    id: string;
+    repaired: boolean;
+    issues: string[];
+  };
 };
 
 type TtsWord = {
@@ -1032,7 +1037,11 @@ export default function Home() {
       if (payload.selectedAssetIds.length > 0) {
         setSelectedAssets(payload.selectedAssetIds);
       }
-      setStatus(`自动选材完成：${payload.coverage.filledSlots}/${payload.coverage.slots} 个素材位已匹配`);
+      setStatus(
+        `自动选材完成：${payload.coverage.filledSlots}/${payload.coverage.slots} 个素材位已匹配${
+          payload.videoPlan?.repaired ? "，编排已自动修正" : ""
+        }`,
+      );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("自动选材失败: " + message);

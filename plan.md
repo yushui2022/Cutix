@@ -33,11 +33,12 @@
 25. 已完成独立 Render Worker CLI MVP：`npm run worker:render` 会轮询 queued 任务、读取持久化 payload 并调用统一 runner 执行；`CUTIX_RENDER_AUTOSTART=false` 可让 API 只创建任务，由 Worker 接管执行。
 26. 已完成 Worker 监控 MVP：Render Worker 会写入本地心跳状态，`GET /api/worker-status` 返回 Worker 健康状态和队列统计，前端顶部 Worker/队列数字已改为真实数据。
 27. 已完成排队任务取消 MVP：新增 `POST /api/render-tasks/[taskId]/cancel`，只允许取消仍处于 `queued` 的任务；前端最近任务卡可直接取消排队任务，Worker 和进程内队列会跳过已取消任务。
+28. 已完成 `videoPlan` 严格校验/修复 MVP：抽出 `src/lib/video-plan-schema.ts`，脚本生成、自动选材和最终渲染都通过同一套 schema 校验；缺失或损坏的 plan 会自动修复为安全结构。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
 1. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
-2. 把 `videoPlan` 从 MVP 校验升级为严格 JSON Schema：支持版本迁移、模型输出修复和人工锁定。
+2. 继续完善 `videoPlan`：加入版本迁移、人工锁定、任务失败后复用同一 plan 和前端差异提示。
 3. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
 4. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
@@ -376,7 +377,8 @@ worker_events   — Worker 日志
 - [ ] LLM 脚本 A/B 变体
 - [x] LLM 输出统一 `videoPlan` MVP（文案、分镜、布局、素材需求、数字人口播、字幕、转场）
 - [x] `videoPlan` JSON Schema 版本标识 + 本地保存
-- [ ] `videoPlan` 严格 Schema 校验 + 版本迁移 + 任务失败复用
+- [x] `videoPlan` 严格 Schema 校验 + 自动修复（MVP：统一 schema 模块，script/selection/render 共用）
+- [ ] `videoPlan` 版本迁移 + 人工锁定 + 任务失败复用
 - [ ] 统计报表（生成量/成功率/素材复用率）
 
 ---
@@ -406,6 +408,7 @@ worker_events   — Worker 日志
 - 新增独立 Render Worker CLI：`npm run worker:render` 持续轮询 queued 任务，`npm run worker:render:once` 可跑一次空队列/单任务检查；设置 `CUTIX_RENDER_AUTOSTART=false` 后，API 不再自动执行任务，方便切到 Worker 模式。
 - 新增 Worker 心跳与状态 API：`platform/data/worker-state/` 记录 Worker 在线、空闲/处理中、当前任务和处理数量；`GET /api/worker-status` 汇总 Worker 健康状态和 queued/running/failed/canceled 队列数，前端顶部不再硬编码 Worker 数。
 - 新增排队任务取消 MVP：`POST /api/render-tasks/[taskId]/cancel` 会把还没进入渲染的任务标记为 `canceled`；前端任务卡显示“取消”按钮和取消状态，进程内批量队列与独立 Render Worker 都会跳过已取消任务。
+- 新增 `videoPlan` 严格校验/修复 MVP：`src/lib/video-plan-schema.ts` 统一定义 schemaVersion、场景、布局、素材槽、字幕和转场规则；`/api/script` 负责生成规范 plan，`/api/selection` 和 `/api/render` 会在消费前自动校验并修复缺失/损坏的 plan。
 
 ### 下一步
 

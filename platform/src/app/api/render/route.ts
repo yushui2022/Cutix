@@ -7,6 +7,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { createRenderTask, updateRenderTask } from "@/lib/render-task-store";
+import { normalizeVideoPlanForScript } from "@/lib/video-plan-schema";
 
 type SceneLayout = "full_dh" | "dh_top_broll_bottom" | "broll_top_dh_bottom" | "full_broll";
 
@@ -257,7 +258,12 @@ function buildTimeline(data: RenderRequest): RenderProps {
   const selectionsByScene = new Map((data.selection?.selections ?? []).map((scene) => [scene.sceneId, scene]));
   const ttsByScene = new Map((data.tts?.clips ?? []).map((clip) => [clip.sceneId, clip]));
   const digitalHumanByScene = new Map((data.digitalHuman?.clips ?? []).map((clip) => [clip.sceneId, clip]));
-  const planScenesById = new Map((data.script.videoPlan?.scenes ?? []).map((scene) => [scene.id, scene]));
+  const normalizedVideoPlan = normalizeVideoPlanForScript(data.script.videoPlan, data.script, {
+    brand: data.brand,
+    template: data.template,
+    targetPlatform: data.script.platform,
+  });
+  const planScenesById = new Map(normalizedVideoPlan.videoPlan.scenes.map((scene) => [scene.id, scene]));
   let cursorSec = 0;
 
   const scenes = data.script.scenes.map((scene): TimelineScene => {

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { normalizeVideoPlanForScript, type VideoPlanScene } from "@/lib/video-plan-schema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -33,21 +34,6 @@ type ScriptScene = {
   copy: string;
   visualTags: string[];
   needsDigitalHuman: boolean;
-};
-
-type VideoPlanMaterialSlot = {
-  slot?: string;
-  label?: string;
-  requiredTypes?: AssetType[];
-  tags?: string[];
-};
-
-type VideoPlanScene = {
-  id: string;
-  digitalHuman?: {
-    enabled?: boolean;
-  };
-  materialSlots?: VideoPlanMaterialSlot[];
 };
 
 type GeneratedScript = {
@@ -307,7 +293,10 @@ export async function POST(request: NextRequest) {
 
   const assets = Array.isArray(data.assets) ? data.assets : [];
   const usedBrollIds = new Set<string>();
-  const planScenesById = new Map((data.script.videoPlan?.scenes ?? []).map((scene) => [scene.id, scene]));
+  const normalizedVideoPlan = normalizeVideoPlanForScript(data.script.videoPlan, data.script, {
+    targetPlatform: data.targetPlatform ?? data.script.platform,
+  });
+  const planScenesById = new Map(normalizedVideoPlan.videoPlan.scenes.map((scene) => [scene.id, scene]));
   const selections = data.script.scenes.map((scene) => {
     const planScene = planScenesById.get(scene.id);
     const slots = slotsForScene(scene, planScene).map((slot) =>
@@ -352,6 +341,11 @@ export async function POST(request: NextRequest) {
         slots: slotCount,
         filledSlots: filledSlotCount,
         ratio: slotCount === 0 ? 0 : Math.round((filledSlotCount / slotCount) * 100),
+      },
+      videoPlan: {
+        id: normalizedVideoPlan.videoPlan.id,
+        repaired: normalizedVideoPlan.repaired,
+        issues: normalizedVideoPlan.issues,
       },
     },
     { headers: { "Cache-Control": "no-store" } },
