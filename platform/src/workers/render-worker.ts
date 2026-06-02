@@ -76,6 +76,8 @@ async function main() {
     if (runOnce) break;
     if (!processed) await sleep(pollIntervalMs);
   }
+
+  await heartbeat("stopped");
 }
 
 main().catch((error: unknown) => {
