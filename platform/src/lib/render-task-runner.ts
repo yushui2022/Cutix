@@ -1,5 +1,5 @@
-import { updateRenderTask } from "@/lib/render-task-store";
-import type { RenderTaskPayload } from "@/lib/render-task-payload-store";
+import { updateRenderTask } from "./render-task-store";
+import type { RenderTaskPayload } from "./render-task-payload-store";
 
 const activeRenderTaskIds = new Set<string>();
 

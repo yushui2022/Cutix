@@ -1069,6 +1069,7 @@ export default function Home() {
         tasks?: RenderTask[];
         taskId?: string;
         batchCount?: number;
+        autoStarted?: boolean;
       };
       const submittedTasks = Array.isArray(payload.tasks) && payload.tasks.length > 0
         ? payload.tasks
@@ -1084,9 +1085,13 @@ export default function Home() {
       }
       setCurrentTaskId(submittedTaskId);
       setStatus(
-        submittedTasks.length > 1
-          ? `已提交 ${submittedTasks.length} 个后台任务，按队列渲染中...`
-          : "任务已提交，后台渲染中...",
+        payload.autoStarted === false
+          ? submittedTasks.length > 1
+            ? `已提交 ${submittedTasks.length} 个任务，等待 Render Worker 接管...`
+            : "任务已提交，等待 Render Worker 接管..."
+          : submittedTasks.length > 1
+            ? `已提交 ${submittedTasks.length} 个后台任务，按队列渲染中...`
+            : "任务已提交，后台渲染中...",
       );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";

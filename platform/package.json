@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "worker:render": "tsx src/workers/render-worker.ts",
+    "worker:render:once": "tsx src/workers/render-worker.ts --once",
     "render": "remotion render SplitScreen out/SplitScreen.mp4"
   },
   "dependencies": {

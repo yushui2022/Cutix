@@ -44,6 +44,10 @@ function normalizedCount(value: RenderTaskSubmission["count"]) {
   return Math.min(50, Math.max(1, Math.floor(count)));
 }
 
+function shouldAutoStartRenderTasks() {
+  return process.env.CUTIX_RENDER_AUTOSTART !== "false";
+}
+
 export async function GET() {
   const tasks = await listRenderTasks(50);
   return Response.json({ tasks }, { headers: { "Cache-Control": "no-store" } });
@@ -53,6 +57,7 @@ export async function POST(request: NextRequest) {
   const payload = asSubmission(await request.json());
   const ipId = payload.ipId ?? payload.brand?.id ?? "wang";
   const count = normalizedCount(payload.count);
+  const autoStart = shouldAutoStartRenderTasks();
   const tasks: RenderTask[] = [];
   const jobs = [];
 
@@ -69,21 +74,27 @@ export async function POST(request: NextRequest) {
     const taskPayload = { ...payload, count: 1, batchIndex: index, batchCount: count };
     await writeRenderTaskPayload(createdTask.id, taskPayload);
     const task = await updateRenderTask(createdTask.id, {
-      stage: count > 1 ? `等待后台队列 (${index}/${count})` : "等待后台渲染",
+      stage: autoStart
+        ? count > 1
+          ? `等待后台队列 (${index}/${count})`
+          : "等待后台渲染"
+        : count > 1
+          ? `等待 Render Worker (${index}/${count})`
+          : "等待 Render Worker",
       payloadStored: true,
     });
     tasks.push(task);
     jobs.push({ taskId: task.id, payload: taskPayload, index, total: count });
   }
 
-  void drainRenderTaskBatch(request.nextUrl.origin, jobs);
+  if (autoStart) void drainRenderTaskBatch(request.nextUrl.origin, jobs);
   const currentTask = tasks[tasks.length - 1];
   if (!currentTask) {
     return Response.json({ error: "No render task created" }, { status: 500 });
   }
 
   return Response.json(
-    { task: currentTask, tasks, taskId: currentTask.id, batchCount: count },
+    { task: currentTask, tasks, taskId: currentTask.id, batchCount: count, autoStarted: autoStart },
     {
       status: 202,
       headers: { "Cache-Control": "no-store" },
