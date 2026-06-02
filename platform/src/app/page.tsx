@@ -2237,6 +2237,7 @@ export default function Home() {
               })}
             </div>
 
+            {showAdvancedWorkflow && (
             <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.025] p-4">
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -2356,6 +2357,7 @@ export default function Home() {
                 </div>
               </div>
             </div>
+            )}
           </section>
 
           <section className={cardBase}>
@@ -2648,6 +2650,7 @@ export default function Home() {
               })}
             </div>
 
+            {showAdvancedWorkflow && (
             <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.025] p-4">
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -2721,6 +2724,7 @@ export default function Home() {
                 </label>
               </div>
             </div>
+            )}
           </section>
         </section>
 
