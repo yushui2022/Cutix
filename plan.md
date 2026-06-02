@@ -35,6 +35,7 @@
 27. 已完成排队任务取消 MVP：新增 `POST /api/render-tasks/[taskId]/cancel`，只允许取消仍处于 `queued` 的任务；前端最近任务卡可直接取消排队任务，Worker 和进程内队列会跳过已取消任务。
 28. 已完成 `videoPlan` 严格校验/修复 MVP：抽出 `src/lib/video-plan-schema.ts`，脚本生成、自动选材和最终渲染都通过同一套 schema 校验；缺失或损坏的 plan 会自动修复为安全结构。
 29. 已完成数字人占位隔离 MVP：`/api/digital-human` 不再静默把生产失败 fallback 成占位；占位片段只能显式测试，前端禁止把测试占位数字人提交到最终成片任务。
+30. 已完成数字人 HTTP API 契约 MVP：HTTP provider 支持同步 `videoUrl/alphaVideoUrl` 返回，也支持 `statusUrl/pollUrl` 异步 job 轮询；`docs/digital-human-http-api.md` 已写清对接协议。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -411,6 +412,7 @@ worker_events   — Worker 日志
 - 新增排队任务取消 MVP：`POST /api/render-tasks/[taskId]/cancel` 会把还没进入渲染的任务标记为 `canceled`；前端任务卡显示“取消”按钮和取消状态，进程内批量队列与独立 Render Worker 都会跳过已取消任务。
 - 新增 `videoPlan` 严格校验/修复 MVP：`src/lib/video-plan-schema.ts` 统一定义 schemaVersion、场景、布局、素材槽、字幕和转场规则；`/api/script` 负责生成规范 plan，`/api/selection` 和 `/api/render` 会在消费前自动校验并修复缺失/损坏的 plan。
 - 新增数字人占位隔离 MVP：未接生产数字人时只能生成测试占位片段，测试片段带 `productionReady = false`，前端会禁止继续提交最终成片；生产 HTTP API/MuseTalk 失败时不会再无感 fallback 成假片段。
+- 新增数字人 HTTP API 契约 MVP：`/api/digital-human` 的 HTTP provider 可接同步返回视频的服务，也可接先返回 `statusUrl/pollUrl` 的异步服务；轮询间隔和超时可用环境变量配置，接口协议写入 `docs/digital-human-http-api.md`。
 
 ### 下一步
 

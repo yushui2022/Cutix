@@ -534,6 +534,115 @@ async function createMuseTalkClip(
   });
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function envNumber(name: string, fallback: number, min: number, max: number) {
+  return clampNumber(Number(process.env[name]), fallback, min, max);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+}
+
+function nestedHttpPayload(data: Record<string, unknown>) {
+  if (typeof data.result === "object" && data.result !== null) return data.result as Record<string, unknown>;
+  if (typeof data.data === "object" && data.data !== null) return data.data as Record<string, unknown>;
+  return data;
+}
+
+function stringField(data: Record<string, unknown>, key: string) {
+  return typeof data[key] === "string" && data[key] ? data[key] : undefined;
+}
+
+function numberField(data: Record<string, unknown>, key: string) {
+  return typeof data[key] === "number" && Number.isFinite(data[key]) ? data[key] : undefined;
+}
+
+function resolveStatusUrl(value: string | undefined, endpoint: string) {
+  if (!value) return undefined;
+  try {
+    return new URL(value, endpoint).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function httpPayloadToClip(clip: TtsClip, payload: Record<string, unknown>): DigitalHumanClip | null {
+  const data = nestedHttpPayload(payload);
+  const alphaVideoUrl = stringField(data, "alphaVideoUrl");
+  const videoUrl = alphaVideoUrl || stringField(data, "videoUrl");
+  if (!videoUrl) return null;
+
+  const alpha = Boolean(alphaVideoUrl || data.alpha === true);
+  return {
+    sceneId: clip.sceneId,
+    role: clip.role,
+    layout: clip.layout,
+    copy: clip.copy,
+    audioUrl: clip.audioUrl,
+    videoUrl,
+    sourceVideoUrl: stringField(data, "sourceVideoUrl") ?? videoUrl,
+    alphaVideoUrl,
+    durationMs: numberField(data, "durationMs") ?? clip.durationMs,
+    source: "http-api",
+    alpha,
+    alphaMode: alpha ? "chromakey-vp9" : "none",
+    placeholder: false,
+  };
+}
+
+function statusFromPayload(payload: Record<string, unknown>) {
+  const data = nestedHttpPayload(payload);
+  const rawStatus = stringField(payload, "status") ?? stringField(data, "status") ?? "";
+  return rawStatus.trim().toLowerCase();
+}
+
+function errorFromPayload(payload: Record<string, unknown>) {
+  const data = nestedHttpPayload(payload);
+  return stringField(payload, "error")
+    ?? stringField(payload, "message")
+    ?? stringField(data, "error")
+    ?? stringField(data, "message")
+    ?? "Digital human job failed";
+}
+
+async function pollHttpApiClip(
+  clip: TtsClip,
+  statusUrl: string,
+  headers: Record<string, string>,
+): Promise<DigitalHumanClip> {
+  const pollIntervalMs = envNumber("DIGITAL_HUMAN_HTTP_POLL_INTERVAL_MS", 2000, 500, 30_000);
+  const pollTimeoutMs = envNumber("DIGITAL_HUMAN_HTTP_POLL_TIMEOUT_MS", 10 * 60 * 1000, 10_000, 60 * 60 * 1000);
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= pollTimeoutMs) {
+    const response = await fetch(statusUrl, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(Math.min(30_000, pollIntervalMs + 5000)),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Digital human status HTTP ${response.status}: ${await response.text()}`);
+    }
+
+    const payload = asRecord(await response.json());
+    const completedClip = httpPayloadToClip(clip, payload);
+    if (completedClip) return completedClip;
+
+    const status = statusFromPayload(payload);
+    if (["failed", "error", "canceled", "cancelled"].includes(status)) {
+      throw new Error(errorFromPayload(payload));
+    }
+
+    await wait(pollIntervalMs);
+  }
+
+  throw new Error(`Digital human job timed out after ${Math.round(pollTimeoutMs / 1000)}s`);
+}
+
 async function createHttpApiClip(
   clip: TtsClip,
   runtimeConfig: StoredDigitalHumanConfig,
@@ -564,26 +673,25 @@ async function createHttpApiClip(
   }
 
   const body: unknown = await response.json();
-  const data = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
-  const alphaVideoUrl = typeof data.alphaVideoUrl === "string" ? data.alphaVideoUrl : undefined;
-  const videoUrl = alphaVideoUrl || (typeof data.videoUrl === "string" ? data.videoUrl : undefined);
-  if (!videoUrl) throw new Error("Digital human HTTP response must include videoUrl or alphaVideoUrl");
+  const data = asRecord(body);
+  const completedClip = httpPayloadToClip(clip, data);
+  if (completedClip) return completedClip;
 
-  return {
-    sceneId: clip.sceneId,
-    role: clip.role,
-    layout: clip.layout,
-    copy: clip.copy,
-    audioUrl: clip.audioUrl,
-    videoUrl,
-    sourceVideoUrl: typeof data.sourceVideoUrl === "string" ? data.sourceVideoUrl : videoUrl,
-    alphaVideoUrl,
-    durationMs: typeof data.durationMs === "number" ? data.durationMs : clip.durationMs,
-    source: "http-api",
-    alpha: Boolean(alphaVideoUrl || data.alpha === true),
-    alphaMode: alphaVideoUrl || data.alpha === true ? "chromakey-vp9" : "none",
-    placeholder: false,
-  };
+  const nested = nestedHttpPayload(data);
+  const statusUrl = resolveStatusUrl(
+    stringField(data, "statusUrl")
+      ?? stringField(data, "pollUrl")
+      ?? stringField(nested, "statusUrl")
+      ?? stringField(nested, "pollUrl"),
+    runtimeConfig.endpoint,
+  );
+  if (!statusUrl) {
+    throw new Error("Digital human HTTP response must include videoUrl/alphaVideoUrl or statusUrl/pollUrl");
+  }
+
+  const pollHeaders: Record<string, string> = { Accept: "application/json" };
+  if (runtimeConfig.apiKey) pollHeaders.Authorization = `Bearer ${runtimeConfig.apiKey}`;
+  return pollHttpApiClip(clip, statusUrl, pollHeaders);
 }
 
 function needsDigitalHuman(scene: ScriptScene | undefined, clip: TtsClip) {
