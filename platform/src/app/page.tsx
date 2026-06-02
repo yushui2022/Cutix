@@ -499,6 +499,25 @@ const digitalHumanReadinessTone: Record<DigitalHumanReadinessCheck["status"], st
   fail: "border-red-300/20 bg-red-300/10 text-red-100",
 };
 
+const digitalHumanSetupSteps = [
+  {
+    title: "准备数字人服务",
+    detail: "推荐把 MuseTalk 或第三方本地服务包装成 HTTP 接口，由 Cutix 负责传入文字和音频。",
+  },
+  {
+    title: "返回口播视频",
+    detail: "服务至少返回 videoUrl 或 alphaVideoUrl；排队任务可返回 statusUrl 让 Cutix 自动轮询。",
+  },
+  {
+    title: "绑定 IP 角色",
+    detail: "每个商业 IP 维护角色名称、声音标识和参考素材路径，生成时自动带给数字人服务。",
+  },
+  {
+    title: "检查后生产",
+    detail: "保存配置并通过接入检查后，一键生产才会调用真实数字人，测试占位不会进入成片。",
+  },
+];
+
 function digitalHumanProfileForBrand(brand: IP): BrandDigitalHumanProfile {
   return {
     roleName: brand.digitalHuman?.roleName || `${brand.name}数字人`,
@@ -1645,6 +1664,8 @@ export default function Home() {
   const fieldClass =
     "mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none transition focus:border-[#ff3b5c]/60 focus:bg-white/[0.06]";
   const availableAssetCount = assets.filter((asset) => asset.status !== "disabled").length;
+  const reviewAssetCount = assets.filter((asset) => asset.status === "review").length;
+  const disabledAssetCount = assets.filter((asset) => asset.status === "disabled").length;
   const selectedDigitalHumanProfile = digitalHumanProfileForBrand(selectedIP);
   const brandDigitalHuman = digitalHumanProfileForBrand(brandDraft);
   const digitalHumanConnectionStatus =
@@ -1722,7 +1743,7 @@ export default function Home() {
               type="button"
             >
               <UploadCloud className="h-4 w-4" />
-              {uploading ? "上传中" : "导入素材"}
+              {uploading ? "上传中" : "补充素材"}
             </button>
           </div>
         </div>
@@ -1825,7 +1846,7 @@ export default function Home() {
                 <div>
                   <div className="text-xs uppercase tracking-wider text-white/40">Avatar</div>
                   <h2 className="mt-1 text-base font-semibold text-white">数字人接入</h2>
-                  <p className="mt-1 text-xs text-white/50">生产环境建议接 HTTP 数字人服务，MVP 可接本地 MuseTalk。</p>
+                  <p className="mt-1 text-xs text-white/50">这里配置真实口播数字人服务；测试占位不会进入最终成片。</p>
                 </div>
                 <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                   digitalHumanConfig.provider === "placeholder"
@@ -1835,6 +1856,43 @@ export default function Home() {
                 >
                   {digitalHumanConnectionStatus}
                 </span>
+              </div>
+
+              <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.025] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-white">接入向导</div>
+                    <div className="mt-1 text-xs leading-5 text-white/50">
+                      Cutix 会把每段口播的文字、音频路径、IP 角色信息发给数字人服务；服务返回视频后，再和本地素材一起按分镜编排合成。
+                    </div>
+                  </div>
+                  <span
+                    className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                      productionDigitalHumanReady
+                        ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                        : "border-amber-300/20 bg-amber-300/10 text-amber-100"
+                    }`}
+                  >
+                    {productionDigitalHumanReady ? "可用于生产" : "等待接入"}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {digitalHumanSetupSteps.map((step, index) => (
+                    <div className="rounded-lg border border-white/8 bg-black/15 p-3" key={step.title}>
+                      <div className="mb-1 flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/8 text-[10px] font-semibold text-white/60">
+                          {index + 1}
+                        </span>
+                        <span className="text-xs font-semibold text-white">{step.title}</span>
+                      </div>
+                      <div className="text-[11px] leading-5 text-white/45">{step.detail}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/10 p-3 text-[11px] leading-5 text-cyan-100/85">
+                  HTTP 服务需要接收 <span className="font-semibold text-cyan-50">text / audioPath / roleName / voiceId / avatarPath</span>，
+                  返回 <span className="font-semibold text-cyan-50">videoUrl</span>、<span className="font-semibold text-cyan-50">alphaVideoUrl</span> 或 <span className="font-semibold text-cyan-50">statusUrl</span>。
+                </div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1855,7 +1913,7 @@ export default function Home() {
                   </select>
                 </label>
                 <label className="block text-xs font-medium text-white/60">
-                  Python
+                  本地 Python 路径（MuseTalk 模式）
                   <input
                     className={fieldClass}
                     onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, pythonPath: event.target.value })}
@@ -1864,7 +1922,7 @@ export default function Home() {
                   />
                 </label>
                 <label className="block text-xs font-medium text-white/60 md:col-span-2">
-                  HTTP Endpoint
+                  数字人服务地址（HTTP API 模式）
                   <input
                     className={fieldClass}
                     onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, endpoint: event.target.value })}
@@ -2364,8 +2422,8 @@ export default function Home() {
             <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <div className="text-xs uppercase tracking-wider text-white/40">Library</div>
-                <h2 className="mt-1 text-xl font-semibold text-white">素材库</h2>
-                <p className="mt-1 text-sm text-white/50">接入自动标签结果，按标签和 IP 规则匹配素材。</p>
+                <h2 className="mt-1 text-xl font-semibold text-white">已导入素材库</h2>
+                <p className="mt-1 text-sm text-white/50">素材通常先集中导入，后续生成任务会从这里自动挑选和拼接。</p>
               </div>
               <button
                 className="btn-primary inline-flex w-fit items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white"
@@ -2374,8 +2432,27 @@ export default function Home() {
                 type="button"
               >
                 <UploadCloud className="h-4 w-4" />
-                {uploading ? "上传中" : "上传素材"}
+                {uploading ? "上传中" : "补充导入"}
               </button>
+            </div>
+
+            <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
+                <div className="text-[11px] text-white/40">已导入</div>
+                <div className="mt-1 text-xl font-semibold text-white">{assets.length}</div>
+              </div>
+              <div className="rounded-xl border border-emerald-300/20 bg-emerald-300/10 p-3">
+                <div className="text-[11px] text-emerald-100/70">可用于生成</div>
+                <div className="mt-1 text-xl font-semibold text-emerald-50">{availableAssetCount}</div>
+              </div>
+              <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-3">
+                <div className="text-[11px] text-amber-100/70">待复核</div>
+                <div className="mt-1 text-xl font-semibold text-amber-50">{reviewAssetCount}</div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
+                <div className="text-[11px] text-white/40">已停用</div>
+                <div className="mt-1 text-xl font-semibold text-white">{disabledAssetCount}</div>
+              </div>
             </div>
 
             <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.025] p-4">
