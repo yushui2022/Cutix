@@ -65,6 +65,9 @@ type Asset = {
     height?: number;
     durationMs?: number;
     visionStatus: string;
+    visionProvider?: string;
+    summary?: string;
+    analyzedAt?: string;
   };
 };
 
@@ -583,6 +586,8 @@ export default function Home() {
   const [fullWorkflowRunning, setFullWorkflowRunning] = useState(false);
   const [showAdvancedWorkflow, setShowAdvancedWorkflow] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [analyzingAssetId, setAnalyzingAssetId] = useState("");
+  const [batchAnalyzingAssets, setBatchAnalyzingAssets] = useState(false);
   const [scriptGenerating, setScriptGenerating] = useState(false);
   const [scriptSource, setScriptSource] = useState("");
   const [scriptPreview, setScriptPreview] = useState<GeneratedScript | null>(null);
@@ -990,6 +995,50 @@ export default function Home() {
     await patchAsset(asset, { tags });
     setEditingAssetId(null);
     setStatus(`已更新「${asset.name}」标签`);
+  };
+
+  const analyzeAssetsWithVision = async (asset?: Asset) => {
+    if (asset) setAnalyzingAssetId(asset.id);
+    else setBatchAnalyzingAssets(true);
+    setStatus(asset ? `正在分析「${asset.name}」关键帧...` : "正在批量提交已抽帧素材...");
+
+    try {
+      const res = await fetch("/api/assets/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(asset ? { assetId: asset.id } : { all: true }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as {
+        configured?: boolean;
+        updated?: number;
+        asset?: Asset;
+        assets?: Asset[];
+      };
+
+      if (payload.asset) {
+        updateAssetState(payload.asset);
+      }
+      if (Array.isArray(payload.assets)) {
+        const analyzedAssets = payload.assets;
+        setAssets((current) =>
+          current.map((item) => analyzedAssets.find((nextAsset) => nextAsset.id === item.id) ?? item),
+        );
+      }
+
+      setStatus(
+        payload.configured
+          ? `视觉模型打标完成：${payload.updated ?? 0} 个素材已更新`
+          : "未配置本地视觉模型服务；关键帧已保留，等待接入后再打标",
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("视觉打标失败: " + message);
+    } finally {
+      setAnalyzingAssetId("");
+      setBatchAnalyzingAssets(false);
+    }
   };
 
   const startEditingTagCategory = (category: TagCategory) => {
@@ -1674,6 +1723,7 @@ export default function Home() {
   const availableAssetCount = assets.filter((asset) => asset.status !== "disabled").length;
   const reviewAssetCount = assets.filter((asset) => asset.status === "review").length;
   const disabledAssetCount = assets.filter((asset) => asset.status === "disabled").length;
+  const keyframedAssetCount = assets.filter((asset) => (asset.analysis?.keyframes.length ?? 0) > 0).length;
   const selectedDigitalHumanProfile = digitalHumanProfileForBrand(selectedIP);
   const brandDigitalHuman = digitalHumanProfileForBrand(brandDraft);
   const digitalHumanConnectionStatus =
@@ -2433,18 +2483,29 @@ export default function Home() {
                 <h2 className="mt-1 text-xl font-semibold text-white">已导入素材库</h2>
                 <p className="mt-1 text-sm text-white/50">素材通常先集中导入，后续生成任务会从这里自动挑选和拼接。</p>
               </div>
-              <button
-                className="btn-primary inline-flex w-fit items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white"
-                disabled={uploading}
-                onClick={openAssetUploader}
-                type="button"
-              >
-                <UploadCloud className="h-4 w-4" />
-                {uploading ? "上传中" : "补充导入"}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="inline-flex w-fit items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-semibold text-white/75 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={batchAnalyzingAssets || keyframedAssetCount === 0}
+                  onClick={() => analyzeAssetsWithVision()}
+                  type="button"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {batchAnalyzingAssets ? "打标中" : "批量视觉打标"}
+                </button>
+                <button
+                  className="btn-primary inline-flex w-fit items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white"
+                  disabled={uploading}
+                  onClick={openAssetUploader}
+                  type="button"
+                >
+                  <UploadCloud className="h-4 w-4" />
+                  {uploading ? "上传中" : "补充导入"}
+                </button>
+              </div>
             </div>
 
-            <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
               <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
                 <div className="text-[11px] text-white/40">已导入</div>
                 <div className="mt-1 text-xl font-semibold text-white">{assets.length}</div>
@@ -2456,6 +2517,10 @@ export default function Home() {
               <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-3">
                 <div className="text-[11px] text-amber-100/70">待复核</div>
                 <div className="mt-1 text-xl font-semibold text-amber-50">{reviewAssetCount}</div>
+              </div>
+              <div className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 p-3">
+                <div className="text-[11px] text-cyan-100/70">已抽帧</div>
+                <div className="mt-1 text-xl font-semibold text-cyan-50">{keyframedAssetCount}</div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
                 <div className="text-[11px] text-white/40">已停用</div>
@@ -2651,6 +2716,9 @@ export default function Home() {
                           {asset.analysis?.visionStatus && (
                             <div className="mt-2 rounded-lg border border-white/8 bg-black/15 px-2 py-1.5 text-[11px] text-white/45">
                               {asset.analysis.visionStatus}
+                              {asset.analysis.summary && (
+                                <div className="mt-1 text-white/60">{asset.analysis.summary}</div>
+                              )}
                             </div>
                           )}
                           {asset.analysis?.keyframes.length ? (
@@ -2713,6 +2781,16 @@ export default function Home() {
                         >
                           编辑标签
                         </button>
+                        {(asset.analysis?.keyframes.length ?? 0) > 0 && (
+                          <button
+                            className="rounded-lg border border-cyan-300/20 px-3 py-1.5 text-xs font-semibold text-cyan-100/80 hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={analyzingAssetId === asset.id}
+                            onClick={() => analyzeAssetsWithVision(asset)}
+                            type="button"
+                          >
+                            {analyzingAssetId === asset.id ? "打标中..." : "视觉打标"}
+                          </button>
+                        )}
                         <button
                           className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 hover:bg-white/[0.06]"
                           onClick={() => toggleAssetEnabled(asset)}
