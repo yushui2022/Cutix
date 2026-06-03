@@ -1,8 +1,9 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import http from "node:http";
 import https from "node:https";
 
@@ -19,8 +20,13 @@ const manifestFile = path.join(samplesDir, "manifest.json");
 const attributionFile = path.join(samplesDir, "ATTRIBUTION.md");
 
 const batchId = "commons-public-sample-2026-06-03";
+const userAgent = "CutixSampleSeeder/0.2 (local demo asset library; contact: local)";
+const targetAssetCount = Number(process.env.CUTIX_SAMPLE_ASSET_TARGET || 90);
+const targetVideoCount = Number(process.env.CUTIX_SAMPLE_VIDEO_TARGET || 8);
+const maxVideoBytes = Number(process.env.CUTIX_SAMPLE_MAX_VIDEO_MB || 6) * 1024 * 1024;
+const searchLimitPerProfile = Number(process.env.CUTIX_SAMPLE_SEARCH_LIMIT || 24);
 
-const sources = [
+const curatedSources = [
   {
     id: "commons-office-workspace",
     name: "办公室工作台",
@@ -148,6 +154,46 @@ const sources = [
   },
 ];
 
+const imageProfiles = [
+  profile("office-workspace", "办公工作区", "office workspace CC0 filetype:bitmap", ["办公", "企业服务", "桌面", "中景", "B-roll", "16:9"]),
+  profile("meeting-room", "会议室沟通", "meeting room CC0 filetype:bitmap", ["办公", "团队", "会议", "中景", "证明", "B-roll", "16:9"]),
+  profile("retail-store", "零售门店", "retail store interior CC0 filetype:bitmap", ["门店", "零售", "产品", "货架", "B-roll", "16:9"]),
+  profile("shop-interior", "店铺内景", "shop interior CC0 filetype:bitmap", ["门店", "零售", "陈列", "远景", "B-roll", "16:9"]),
+  profile("product-display", "产品陈列", "product display CC0 filetype:bitmap", ["产品", "货架", "特写", "转化", "B-roll", "16:9"]),
+  profile("restaurant-kitchen", "餐饮厨房", "restaurant kitchen CC0 filetype:bitmap", ["餐饮", "后厨", "流程", "服务", "B-roll", "16:9"]),
+  profile("cafe-interior", "咖啡门店", "cafe interior CC0 filetype:bitmap", ["门店", "餐饮", "氛围", "活动", "B-roll", "16:9"]),
+  profile("warehouse", "仓储物流", "warehouse CC0 filetype:bitmap", ["仓储", "物流", "供应链", "证明", "B-roll", "16:9"]),
+  profile("factory", "工厂生产", "factory CC0 filetype:bitmap", ["工厂", "生产", "流程", "证明", "B-roll", "16:9"]),
+  profile("production-line", "生产线", "production line CC0 filetype:bitmap", ["工厂", "生产线", "流程", "中景", "证明", "B-roll", "16:9"]),
+  profile("business-chart", "业务数据", "business chart CC0 filetype:bitmap", ["数据", "增长", "企业服务", "证明", "特写", "B-roll", "16:9"]),
+  profile("training", "教育培训", "classroom training CC0 filetype:bitmap", ["教育", "课程", "培训", "中景", "B-roll", "16:9"]),
+  profile("beauty-product", "美妆产品", "beauty product CC0 filetype:bitmap", ["美妆", "产品", "特写", "转化", "B-roll", "16:9"]),
+  profile("food-product", "食品产品", "food product display CC0 filetype:bitmap", ["餐饮", "食品", "产品", "特写", "B-roll", "16:9"]),
+  profile("exhibition", "展会展台", "trade show booth CC0 filetype:bitmap", ["展会", "招商", "活动", "远景", "B-roll", "16:9"]),
+  profile("customer-service", "客户服务", "customer service office CC0 filetype:bitmap", ["客户", "服务", "办公", "中景", "B-roll", "16:9"]),
+  profile("packaging", "包装交付", "packaging product CC0 filetype:bitmap", ["包装", "产品", "交付", "证明", "B-roll", "16:9"]),
+  profile("live-room", "直播间", "live streaming room CC0 filetype:bitmap", ["直播间", "口播", "活动", "转化", "B-roll", "16:9"]),
+];
+
+const videoProfiles = [
+  profile("video-office", "办公动态", "office CC0 filetype:video", ["办公", "企业服务", "团队", "B-roll", "16:9"]),
+  profile("video-cafe", "咖啡门店动态", "cafe CC0 filetype:video", ["门店", "餐饮", "氛围", "B-roll", "16:9"]),
+  profile("video-kitchen", "餐饮厨房动态", "restaurant kitchen CC0 filetype:video", ["餐饮", "后厨", "流程", "B-roll", "16:9"]),
+  profile("video-shop", "店铺动态", "shop CC0 filetype:video", ["门店", "零售", "活动", "B-roll", "16:9"]),
+  profile("video-store", "零售动态", "store filetype:video", ["门店", "零售", "货架", "B-roll", "16:9"]),
+  profile("video-warehouse", "仓储动态", "warehouse filetype:video", ["仓储", "物流", "供应链", "B-roll", "16:9"]),
+  profile("video-factory", "工厂动态", "factory filetype:video", ["工厂", "生产", "流程", "B-roll", "16:9"]),
+  profile("video-presentation", "演示汇报动态", "business presentation filetype:video", ["企业服务", "数据", "证明", "B-roll", "16:9"]),
+  profile("video-customer", "客户服务动态", "customer service filetype:video", ["客户", "服务", "证明", "B-roll", "16:9"]),
+  profile("video-shopping", "商场动态", "shopping mall filetype:video", ["门店", "零售", "人流", "活动", "B-roll", "16:9"]),
+  profile("video-coffee-shop", "咖啡店动态", "coffee shop filetype:video", ["门店", "餐饮", "氛围", "B-roll", "16:9"]),
+  profile("video-food", "食品制作动态", "food preparation filetype:video", ["餐饮", "产品", "流程", "B-roll", "16:9"]),
+];
+
+function profile(id, label, query, tags) {
+  return { id, label, query, tags };
+}
+
 function mediaColor(type) {
   return type === "image" ? "#38bdf8" : "#f97316";
 }
@@ -160,20 +206,88 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function requestText(url) {
+  return new Promise((resolve, reject) => {
+    const request = requestModule(url).get(
+      url,
+      {
+        headers: {
+          "User-Agent": userAgent,
+          Accept: "application/json,text/plain,*/*",
+        },
+      },
+      (response) => {
+        if ([301, 302, 303, 307, 308].includes(response.statusCode ?? 0) && response.headers.location) {
+          response.resume();
+          requestText(new URL(response.headers.location, url).toString()).then(resolve, reject);
+          return;
+        }
+
+        if ((response.statusCode ?? 500) >= 400) {
+          response.resume();
+          const error = new Error(`HTTP ${response.statusCode} while requesting ${url}`);
+          error.statusCode = response.statusCode;
+          error.retryAfter = response.headers["retry-after"];
+          reject(error);
+          return;
+        }
+
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => resolve(body));
+      },
+    );
+
+    request.on("error", reject);
+    request.setTimeout(120000, () => {
+      const error = new Error(`Timeout while requesting ${url}`);
+      error.retryable = true;
+      request.destroy(error);
+    });
+  });
+}
+
+async function retry(operation, label, maxAttempts = 6) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      const retryableCode = ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"].includes(error.code);
+      const retryable = error.retryable || retryableCode || error.statusCode === 429 || error.statusCode >= 500;
+      if (!retryable || attempt === maxAttempts) throw error;
+
+      const retryAfterSeconds = Number(error.retryAfter);
+      const delayMs = Number.isFinite(retryAfterSeconds)
+        ? Math.max(10000, retryAfterSeconds * 1000)
+        : Math.min(60000, 5000 * attempt * attempt);
+      console.warn(`${label} throttled; retrying in ${Math.round(delayMs / 1000)}s (${attempt}/${maxAttempts})`);
+      await sleep(delayMs);
+    }
+  }
+}
+
+async function requestJson(url) {
+  const text = await retry(() => requestText(url), "Commons API");
+  return JSON.parse(text);
+}
+
 function downloadFileOnce(url, filePath) {
   return new Promise((resolve, reject) => {
     const request = requestModule(url).get(
       url,
       {
         headers: {
-          "User-Agent": "CutixSampleSeeder/0.1 (public sample asset seeding)",
+          "User-Agent": userAgent,
           Accept: "*/*",
         },
       },
       (response) => {
         if ([301, 302, 303, 307, 308].includes(response.statusCode ?? 0) && response.headers.location) {
           response.resume();
-          downloadFile(new URL(response.headers.location, url).toString(), filePath).then(resolve, reject);
+          downloadFileOnce(new URL(response.headers.location, url).toString(), filePath).then(resolve, reject);
           return;
         }
 
@@ -203,54 +317,22 @@ function downloadFileOnce(url, filePath) {
 }
 
 async function downloadFile(url, filePath) {
-  const maxAttempts = 5;
   const tempPath = `${filePath}.part`;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  await retry(async () => {
+    await fs.rm(tempPath, { force: true });
     try {
-      await fs.rm(tempPath, { force: true });
       await downloadFileOnce(url, tempPath);
       await fs.rename(tempPath, filePath);
-      return;
     } catch (error) {
       await fs.rm(tempPath, { force: true });
-      const retryable = error.retryable || error.statusCode === 429 || error.statusCode >= 500;
-      if (!retryable || attempt === maxAttempts) throw error;
-
-      const retryAfterSeconds = Number(error.retryAfter);
-      const delayMs = Number.isFinite(retryAfterSeconds)
-        ? Math.max(10000, retryAfterSeconds * 1000)
-        : Math.min(45000, 5000 * attempt * attempt);
-      console.warn(`Download throttled; retrying in ${Math.round(delayMs / 1000)}s (${attempt}/${maxAttempts})`);
-      await sleep(delayMs);
+      throw error;
     }
-  }
-}
-
-async function ensureFile(source) {
-  const filePath = path.join(samplesDir, source.fileName);
-  try {
-    const stat = await fs.stat(filePath);
-    if (stat.size > 0) {
-      const probe = await probeMedia(filePath);
-      if (probe.width && probe.height) return filePath;
-      console.warn(`Existing file is incomplete, redownloading: ${source.fileName}`);
-      await fs.rm(filePath, { force: true });
-    }
-  } catch {
-    // Download below.
-  }
-
-  console.log(`Downloading ${source.name}`);
-  await downloadFile(source.downloadUrl, filePath);
-  await sleep(1500);
-  return filePath;
+  }, "Download");
 }
 
 function pickBinary(name) {
   const exe = process.platform === "win32" ? `${name}.exe` : name;
-  const bundled = path.join(rootDir, "node_modules", "@remotion", "compositor-win32-x64-msvc", exe);
-  return bundled;
+  return path.join(rootDir, "node_modules", "@remotion", "compositor-win32-x64-msvc", exe);
 }
 
 function run(command, args) {
@@ -302,7 +384,39 @@ async function probeMedia(filePath) {
   }
 }
 
-async function createVideoFrames(source, filePath) {
+async function ensureFile(source) {
+  const filePath = path.join(samplesDir, source.fileName);
+  try {
+    const stat = await fs.stat(filePath);
+    if (stat.size > 0) {
+      const probe = await probeMedia(filePath);
+      if (probe.width && probe.height) return filePath;
+      console.warn(`Existing file is incomplete, redownloading: ${source.fileName}`);
+      await fs.rm(filePath, { force: true });
+    }
+  } catch {
+    // Download below.
+  }
+
+  console.log(`Downloading ${source.name}`);
+  await downloadFile(source.downloadUrl, filePath);
+  await sleep(source.type === "video" ? 3500 : 1500);
+  return filePath;
+}
+
+function frameTimestamps(durationSec) {
+  if (!durationSec || !Number.isFinite(durationSec) || durationSec >= 4.8) {
+    return ["00:00:00.5", "00:00:02", "00:00:04"];
+  }
+
+  const end = Math.max(0.3, durationSec - 0.35);
+  const points = [0.25, end / 2, end]
+    .map((point) => Math.max(0.1, Math.min(point, end)))
+    .map((point) => Number(point.toFixed(2)));
+  return Array.from(new Set(points)).map((point) => point.toFixed(2));
+}
+
+async function createVideoFrames(source, filePath, durationSec) {
   const ffmpeg = pickBinary("ffmpeg");
   const thumbnailName = `${source.id}.jpg`;
   const thumbnailPath = path.join(thumbnailDir, thumbnailName);
@@ -314,7 +428,7 @@ async function createVideoFrames(source, filePath) {
     console.warn(`Thumbnail extraction failed for ${source.id}: ${error.message}`);
   }
 
-  for (const [index, timestamp] of ["00:00:00.5", "00:00:02", "00:00:04"].entries()) {
+  for (const [index, timestamp] of frameTimestamps(durationSec).entries()) {
     const frameName = `${source.id}-${index + 1}.jpg`;
     const framePath = path.join(keyframeDir, frameName);
     try {
@@ -348,13 +462,196 @@ function formatDuration(seconds, type) {
   return `${minutes}:${rest}`;
 }
 
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#039;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function licenseFromMetadata(metadata) {
+  return stripHtml(metadata?.LicenseShortName?.value || metadata?.UsageTerms?.value || "Wikimedia Commons");
+}
+
+function authorFromMetadata(metadata) {
+  const author = stripHtml(metadata?.Artist?.value || metadata?.Credit?.value || "");
+  return author || "Wikimedia Commons contributor";
+}
+
+function isAllowedLicense(license) {
+  const value = license.toLowerCase();
+  if (value.includes("noncommercial") || value.includes("nc ")) return false;
+  return (
+    value.includes("cc0")
+    || value.includes("public domain")
+    || value.includes("pd")
+    || value.includes("cc by")
+  );
+}
+
+function uniqueTags(tags) {
+  const seen = new Set();
+  const result = [];
+  for (const tag of tags) {
+    const clean = String(tag).trim();
+    const key = clean.toLowerCase();
+    if (!clean || seen.has(key)) continue;
+    seen.add(key);
+    result.push(clean);
+  }
+  return result.slice(0, 12);
+}
+
+function hashText(text) {
+  return crypto.createHash("sha1").update(text).digest("hex").slice(0, 10);
+}
+
+function slugify(text) {
+  const slug = String(text)
+    .replace(/^File:/i, "")
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 70);
+  return slug || hashText(text);
+}
+
+function extensionForUrl(url, mime, fallbackType) {
+  const pathname = new URL(url).pathname;
+  const ext = path.extname(pathname).toLowerCase();
+  if (ext && ext.length <= 8) return ext;
+  if (mime === "image/png") return ".png";
+  if (mime === "image/webp") return ".webp";
+  if (mime === "video/webm") return ".webm";
+  if (mime === "application/ogg") return ".ogv";
+  return fallbackType === "video" ? ".webm" : ".jpg";
+}
+
+function sourceUrlForPage(page, imageInfo) {
+  return imageInfo.descriptionurl || `https://commons.wikimedia.org/wiki/${encodeURIComponent(page.title).replace(/%3A/g, ":")}`;
+}
+
+async function searchCommons(profileDef, type) {
+  const params = new URLSearchParams({
+    action: "query",
+    format: "json",
+    generator: "search",
+    gsrsearch: profileDef.query,
+    gsrnamespace: "6",
+    gsrlimit: String(searchLimitPerProfile),
+    prop: "imageinfo",
+    iiprop: "url|mime|size|extmetadata",
+  });
+
+  if (type === "image") params.set("iiurlwidth", "1280");
+
+  const url = `https://commons.wikimedia.org/w/api.php?${params.toString()}`;
+  const data = await requestJson(url);
+  await sleep(1200);
+
+  const pages = Object.values(data.query?.pages ?? {});
+  const sources = [];
+
+  for (const page of pages) {
+    const imageInfo = page.imageinfo?.[0];
+    if (!imageInfo) continue;
+
+    const mime = String(imageInfo.mime || "");
+    const license = licenseFromMetadata(imageInfo.extmetadata);
+    if (!isAllowedLicense(license)) continue;
+
+    if (type === "image" && !mime.startsWith("image/")) continue;
+    if (type === "video" && !(mime.startsWith("video/") || mime === "application/ogg")) continue;
+    if (type === "video" && Number(imageInfo.size || 0) > maxVideoBytes) continue;
+
+    const downloadUrl = type === "image"
+      ? imageInfo.thumburl || imageInfo.url
+      : imageInfo.url;
+    if (!downloadUrl) continue;
+
+    const sourceUrl = sourceUrlForPage(page, imageInfo);
+    const hash = hashText(sourceUrl);
+    const ext = extensionForUrl(downloadUrl, mime, type);
+    const fileSlug = `${profileDef.id}-${slugify(page.title)}-${hash}`;
+    const labelNumber = sources.length + 1;
+
+    sources.push({
+      id: `commons-${type}-${profileDef.id}-${hash}`,
+      name: `${profileDef.label} ${String(labelNumber).padStart(2, "0")}`,
+      type,
+      fileName: `${fileSlug}${ext}`,
+      downloadUrl,
+      sourceUrl,
+      license,
+      author: authorFromMetadata(imageInfo.extmetadata),
+      tags: uniqueTags(profileDef.tags),
+      summary: `${profileDef.label}公开样例素材，已按商业 IP 批量剪辑场景预置标签。`,
+      matchScore: type === "video" ? 78 : 82,
+      discoveredBy: profileDef.query,
+    });
+  }
+
+  return sources;
+}
+
+function pushUnique(target, candidates, seenSourceUrls, limit) {
+  for (const candidate of candidates) {
+    if (target.length >= limit) break;
+    if (seenSourceUrls.has(candidate.sourceUrl)) continue;
+    seenSourceUrls.add(candidate.sourceUrl);
+    target.push(candidate);
+  }
+}
+
+async function discoverSources() {
+  const sources = [...curatedSources];
+  const seenSourceUrls = new Set(sources.map((source) => source.sourceUrl));
+  const targetVideos = Math.max(targetVideoCount, curatedSources.filter((source) => source.type === "video").length);
+  const targetImages = Math.max(targetAssetCount - targetVideos, curatedSources.filter((source) => source.type === "image").length);
+  const imageSources = sources.filter((source) => source.type === "image");
+  const videoSources = sources.filter((source) => source.type === "video");
+
+  for (const profileDef of imageProfiles) {
+    if (imageSources.length >= targetImages) break;
+    console.log(`Searching images: ${profileDef.query}`);
+    const candidates = await searchCommons(profileDef, "image");
+    pushUnique(imageSources, candidates, seenSourceUrls, targetImages);
+  }
+
+  for (const profileDef of videoProfiles) {
+    if (videoSources.length >= targetVideos) break;
+    console.log(`Searching videos: ${profileDef.query}`);
+    const candidates = await searchCommons(profileDef, "video");
+    pushUnique(videoSources, candidates, seenSourceUrls, targetVideos);
+  }
+
+  if (imageSources.length + videoSources.length < targetAssetCount) {
+    for (const profileDef of imageProfiles) {
+      if (imageSources.length + videoSources.length >= targetAssetCount) break;
+      const expandedProfile = {
+        ...profileDef,
+        query: profileDef.query.replace(" CC0", ""),
+      };
+      console.log(`Searching fallback images: ${expandedProfile.query}`);
+      const candidates = await searchCommons(expandedProfile, "image");
+      pushUnique(imageSources, candidates, seenSourceUrls, targetAssetCount - videoSources.length);
+    }
+  }
+
+  return [...imageSources, ...videoSources].slice(0, Math.max(targetAssetCount, imageSources.length + videoSources.length));
+}
+
 async function createAsset(source) {
   const filePath = await ensureFile(source);
   const stat = await fs.stat(filePath);
   const url = `/samples/commons/${source.fileName}`;
   const probe = await probeMedia(filePath);
   const frames = source.type === "video"
-    ? await createVideoFrames(source, filePath)
+    ? await createVideoFrames(source, filePath, probe.durationSec)
     : { thumbnailUrl: url, keyframes: [url] };
 
   return {
@@ -363,7 +660,7 @@ async function createAsset(source) {
     type: source.type,
     duration: formatDuration(probe.durationSec, source.type),
     orientation: inferOrientation(probe.width, probe.height),
-    tags: source.tags,
+    tags: uniqueTags(source.tags),
     status: "ready",
     color: mediaColor(source.type),
     source: `Wikimedia Commons / ${source.license}`,
@@ -379,8 +676,8 @@ async function createAsset(source) {
       width: probe.width,
       height: probe.height,
       durationMs: probe.durationSec ? Math.round(probe.durationSec * 1000) : undefined,
-      visionStatus: "公开样例素材已人工预打标签，可接入本地视觉模型后再次分析。",
-      visionProvider: "manual-public-seed",
+      visionStatus: "公开样例素材已自动入库并人工规则预打标签，可接入本地视觉模型后再次分析。",
+      visionProvider: source.discoveredBy ? "commons-api-seed" : "manual-public-seed",
       summary: source.summary,
       analyzedAt: new Date().toISOString(),
     },
@@ -388,6 +685,7 @@ async function createAsset(source) {
     sourceUrl: source.sourceUrl,
     author: source.author,
     seedBatch: batchId,
+    discoveredBy: source.discoveredBy,
   };
 }
 
@@ -408,17 +706,58 @@ async function writeAttribution(assets) {
     "",
     "These files are downloaded from Wikimedia Commons for local demo and tagging tests. They are intentionally ignored by Git because media files should not be committed to the repository.",
     "",
-    "| Asset | License | Author | Source | Local file |",
-    "| --- | --- | --- | --- | --- |",
+    `Seed batch: ${batchId}`,
+    `Asset count: ${assets.length}`,
+    `Auto-discovered video size limit: ${Math.round(maxVideoBytes / 1024 / 1024)}MB per video`,
+    "",
+    "| Asset | Type | License | Author | Source | Local file |",
+    "| --- | --- | --- | --- | --- | --- |",
     ...assets.map((asset) =>
-      `| ${asset.name} | ${asset.license} | ${asset.author} | ${asset.sourceUrl} | ${asset.url} |`,
+      `| ${asset.name} | ${asset.type} | ${asset.license} | ${asset.author} | ${asset.sourceUrl} | ${asset.url} |`,
     ),
     "",
-    "Run `node scripts/seed-public-assets.mjs` from the `platform` directory to recreate this local sample library.",
+    "Run `npm run assets:seed` from the `platform` directory to recreate this local sample library.",
     "",
   ];
 
   await fs.writeFile(attributionFile, lines.join("\n"), "utf8");
+}
+
+async function cleanupUnreferencedFiles(assets) {
+  const allowedSampleFiles = new Set([
+    "ATTRIBUTION.md",
+    "manifest.json",
+    ...assets.map((asset) => path.basename(asset.fileName)),
+  ]);
+  const allowedThumbnailFiles = new Set(
+    assets
+      .map((asset) => asset.thumbnailUrl)
+      .filter((url) => typeof url === "string" && url.includes("/thumbnails/"))
+      .map((url) => path.basename(url)),
+  );
+  const allowedKeyframeFiles = new Set(
+    assets
+      .flatMap((asset) => asset.analysis?.keyframes ?? [])
+      .filter((url) => typeof url === "string" && url.includes("/keyframes/"))
+      .map((url) => path.basename(url)),
+  );
+
+  const cleanupDir = async (dir, allowedFiles) => {
+    const resolvedDir = path.resolve(dir);
+    if (!resolvedDir.startsWith(path.resolve(samplesDir))) {
+      throw new Error(`Refusing to clean outside sample directory: ${resolvedDir}`);
+    }
+
+    const entries = await fs.readdir(resolvedDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || allowedFiles.has(entry.name)) continue;
+      await fs.rm(path.join(resolvedDir, entry.name), { force: true });
+    }
+  };
+
+  await cleanupDir(samplesDir, allowedSampleFiles);
+  await cleanupDir(thumbnailDir, allowedThumbnailFiles);
+  await cleanupDir(keyframeDir, allowedKeyframeFiles);
 }
 
 async function main() {
@@ -427,9 +766,26 @@ async function main() {
   await fs.mkdir(keyframeDir, { recursive: true });
   await fs.mkdir(dataDir, { recursive: true });
 
+  const sources = await discoverSources();
+  console.log(`Resolved ${sources.length} source assets (${sources.filter((source) => source.type === "video").length} videos).`);
+
   const seededAssets = [];
-  for (const source of sources) {
-    seededAssets.push(await createAsset(source));
+  const failedAssets = [];
+  for (const [index, source] of sources.entries()) {
+    console.log(`[${index + 1}/${sources.length}] ${source.type}: ${source.name}`);
+    try {
+      seededAssets.push(await createAsset(source));
+    } catch (error) {
+      failedAssets.push({
+        id: source.id,
+        name: source.name,
+        type: source.type,
+        sourceUrl: source.sourceUrl,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      console.warn(`Skipping ${source.id}: ${error instanceof Error ? error.message : String(error)}`);
+      await sleep(5000);
+    }
   }
 
   const existingAssets = await readExistingAssets();
@@ -437,15 +793,36 @@ async function main() {
   const nextAssets = [...preservedAssets, ...seededAssets];
 
   await fs.writeFile(assetsFile, JSON.stringify(nextAssets, null, 2), "utf8");
-  await fs.writeFile(manifestFile, JSON.stringify({ batchId, assets: seededAssets }, null, 2), "utf8");
+  await fs.writeFile(
+    manifestFile,
+    JSON.stringify(
+      {
+        batchId,
+        targetAssetCount,
+        targetVideoCount,
+        maxVideoBytes,
+        generatedAt: new Date().toISOString(),
+        assets: seededAssets,
+        failedAssets,
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
   await writeAttribution(seededAssets);
+  await cleanupUnreferencedFiles(seededAssets);
 
   console.log(`Seeded ${seededAssets.length} public sample assets.`);
+  if (failedAssets.length > 0) console.log(`Skipped ${failedAssets.length} failed assets.`);
   console.log(`Assets JSON: ${assetsFile}`);
   console.log(`Attribution: ${attributionFile}`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+const executedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : "";
+if (import.meta.url === executedPath) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
