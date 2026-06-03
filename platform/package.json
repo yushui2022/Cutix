@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "assets:seed": "node scripts/seed-public-assets.mjs",
     "worker:render": "tsx src/workers/render-worker.ts",
     "worker:render:once": "tsx src/workers/render-worker.ts --once",
     "render": "remotion render SplitScreen out/SplitScreen.mp4"
