@@ -5,7 +5,7 @@ import path from "path";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api";
+type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api" | "heygen-api";
 
 type StoredDigitalHumanConfig = {
   provider: DigitalHumanProvider;
@@ -31,7 +31,7 @@ const defaultConfig: StoredDigitalHumanConfig = {
 };
 
 function normalizeProvider(value: unknown): DigitalHumanProvider {
-  if (value === "musetalk-cli" || value === "http-api") return value;
+  if (value === "musetalk-cli" || value === "http-api" || value === "heygen-api") return value;
   return "placeholder";
 }
 

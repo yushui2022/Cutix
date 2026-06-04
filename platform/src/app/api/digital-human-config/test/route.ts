@@ -5,7 +5,7 @@ import path from "path";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api";
+type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api" | "heygen-api";
 
 type StoredDigitalHumanConfig = {
   provider: DigitalHumanProvider;
@@ -49,7 +49,7 @@ const defaultConfig: StoredDigitalHumanConfig = {
 };
 
 function normalizeProvider(value: unknown): DigitalHumanProvider {
-  if (value === "musetalk-cli" || value === "http-api") return value;
+  if (value === "musetalk-cli" || value === "http-api" || value === "heygen-api") return value;
   return "placeholder";
 }
 
@@ -111,6 +111,34 @@ async function testHttpEndpoint(config: StoredDigitalHumanConfig): Promise<Readi
   }
 }
 
+async function testHeyGenEndpoint(config: StoredDigitalHumanConfig): Promise<ReadinessCheck> {
+  const baseUrl = (config.endpoint || "https://api.heygen.com").replace(/\/$/, "");
+  if (!config.apiKey) return check("heygen-key", "API Key", "fail", "未填写 HeyGen API Key");
+
+  try {
+    const response = await fetch(`${baseUrl}/v2/avatars`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "X-API-KEY": config.apiKey,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      return check("heygen-network", "HeyGen 鉴权", "fail", `HeyGen 返回 HTTP ${response.status}`);
+    }
+    if (response.status >= 500) {
+      return check("heygen-network", "HeyGen 服务", "fail", `HeyGen 返回 HTTP ${response.status}`);
+    }
+
+    return check("heygen-network", "HeyGen 服务", "pass", `HeyGen 有响应，HTTP ${response.status}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "未知错误";
+    return check("heygen-network", "HeyGen 服务", "fail", `无法连接 HeyGen：${message}`);
+  }
+}
+
 async function buildChecks(config: StoredDigitalHumanConfig, request: TestRequest): Promise<ReadinessCheck[]> {
   const profile = request.brand?.digitalHuman;
   const avatarPath = profile?.avatarPath?.trim() || config.avatarPath;
@@ -129,6 +157,21 @@ async function buildChecks(config: StoredDigitalHumanConfig, request: TestReques
   }
 
   checks.push(check("provider", "生产接入", "pass", config.provider === "http-api" ? "HTTP API" : "MuseTalk 本地"));
+
+  if (config.provider === "heygen-api") {
+    checks[checks.length - 1] = check("provider", "生产接入", "pass", "HeyGen API");
+    checks.push(
+      avatarPath
+        ? check("avatar", "HeyGen Avatar Pose ID", "pass", "已填写 HeyGen avatar_pose_id")
+        : check("avatar", "HeyGen Avatar Pose ID", "fail", "未填写 HeyGen avatar_pose_id"),
+    );
+    checks.push(
+      config.apiKey
+        ? check("api-key", "API Key", "pass", "已保存 HeyGen API Key")
+        : check("api-key", "API Key", "fail", "未填写 HeyGen API Key"),
+    );
+    if (request.network !== false) checks.push(await testHeyGenEndpoint(config));
+  }
 
   if (config.provider === "http-api") {
     if (!config.endpoint) {

@@ -96,7 +96,7 @@ type LlmConfigDraft = Omit<PublicLlmConfig, "apiKeySet" | "apiKeyPreview"> & {
   apiKey: string;
 };
 
-type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api";
+type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api" | "heygen-api";
 
 type PublicDigitalHumanConfig = {
   provider: DigitalHumanProvider;
@@ -496,6 +496,7 @@ const digitalHumanProviderLabel: Record<DigitalHumanProvider, string> = {
   placeholder: "未接生产数字人",
   "musetalk-cli": "MuseTalk 本地",
   "http-api": "HTTP 数字人 API",
+  "heygen-api": "HeyGen API",
 };
 
 const digitalHumanReadinessStatusLabel: Record<DigitalHumanReadinessCheck["status"], string> = {
@@ -513,7 +514,7 @@ const digitalHumanReadinessTone: Record<DigitalHumanReadinessCheck["status"], st
 const digitalHumanSetupSteps = [
   {
     title: "准备数字人服务",
-    detail: "推荐把 MuseTalk 或第三方本地服务包装成 HTTP 接口，由 Cutix 负责传入文字和音频。",
+    detail: "可先用 HeyGen API 看效果，后续再切回 MuseTalk 或自建 HTTP 服务。",
   },
   {
     title: "返回口播视频",
@@ -1727,7 +1728,11 @@ export default function Home() {
   const selectedDigitalHumanProfile = digitalHumanProfileForBrand(selectedIP);
   const brandDigitalHuman = digitalHumanProfileForBrand(brandDraft);
   const digitalHumanConnectionStatus =
-    digitalHumanConfig.provider === "http-api"
+    digitalHumanConfig.provider === "heygen-api"
+      ? digitalHumanConfig.apiKeySet
+        ? "HeyGen Key 已配置"
+        : "待填写 HeyGen Key"
+      : digitalHumanConfig.provider === "http-api"
       ? digitalHumanConfig.endpoint
         ? "生产 API 已配置"
         : "待填写生产 API"
@@ -1735,7 +1740,12 @@ export default function Home() {
         ? "本地 MuseTalk"
         : "未接生产数字人";
   const digitalHumanReadyForProduction =
-    digitalHumanConfig.provider === "http-api"
+    digitalHumanConfig.provider === "heygen-api"
+      ? Boolean(
+        digitalHumanConfig.apiKeySet
+        && (selectedDigitalHumanProfile.avatarPath || digitalHumanConfig.avatarPath),
+      )
+      : digitalHumanConfig.provider === "http-api"
       ? Boolean(digitalHumanConfig.endpoint)
       : digitalHumanConfig.provider === "musetalk-cli"
         ? Boolean(selectedDigitalHumanProfile.avatarPath || digitalHumanConfig.avatarPath)
@@ -1948,7 +1958,7 @@ export default function Home() {
                   ))}
                 </div>
                 <div className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/10 p-3 text-[11px] leading-5 text-cyan-100/85">
-                  HTTP 服务需要接收 <span className="font-semibold text-cyan-50">text / audioPath / roleName / voiceId / avatarPath</span>，
+                  HeyGen 模式会把本地 TTS 上传为音频资产并生成透明 WebM；HTTP 模式需要接收 <span className="font-semibold text-cyan-50">text / audioPath / roleName / voiceId / avatarPath</span>，
                   返回 <span className="font-semibold text-cyan-50">videoUrl</span>、<span className="font-semibold text-cyan-50">alphaVideoUrl</span> 或 <span className="font-semibold text-cyan-50">statusUrl</span>。
                 </div>
               </div>
@@ -1965,6 +1975,7 @@ export default function Home() {
                       })}
                     value={digitalHumanDraft.provider}
                   >
+                    <option className="bg-[#0a0b14]" value="heygen-api">HeyGen API</option>
                     <option className="bg-[#0a0b14]" value="http-api">HTTP 数字人 API</option>
                     <option className="bg-[#0a0b14]" value="musetalk-cli">MuseTalk 本地 CLI</option>
                     <option className="bg-[#0a0b14]" value="placeholder">测试占位（不可交付）</option>
@@ -1980,20 +1991,20 @@ export default function Home() {
                   />
                 </label>
                 <label className="block text-xs font-medium text-white/60 md:col-span-2">
-                  数字人服务地址（HTTP API 模式）
+                  数字人服务地址 / HeyGen API Base
                   <input
                     className={fieldClass}
                     onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, endpoint: event.target.value })}
-                    placeholder="http://127.0.0.1:7860/generate"
+                    placeholder={digitalHumanDraft.provider === "heygen-api" ? "https://api.heygen.com（可留空）" : "http://127.0.0.1:7860/generate"}
                     value={digitalHumanDraft.endpoint}
                   />
                 </label>
                 <label className="block text-xs font-medium text-white/60 md:col-span-2">
-                  数字人参考素材路径
+                  {digitalHumanDraft.provider === "heygen-api" ? "HeyGen Avatar Pose ID" : "数字人参考素材路径"}
                   <input
                     className={fieldClass}
                     onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, avatarPath: event.target.value })}
-                    placeholder="C:\\avatars\\wang.mp4"
+                    placeholder={digitalHumanDraft.provider === "heygen-api" ? "例如 avatar_pose_xxx" : "C:\\avatars\\wang.mp4"}
                     value={digitalHumanDraft.avatarPath}
                   />
                 </label>
@@ -3341,7 +3352,7 @@ export default function Home() {
 
             {digitalHumanConfig.provider === "placeholder" && (
               <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
-                当前未接生产数字人服务，只能生成测试占位片段；测试片段会被禁止提交到最终成片任务。接入 HTTP API 或 MuseTalk 后才是可交付链路。
+                当前未接生产数字人服务，只能生成测试占位片段；测试片段会被禁止提交到最终成片任务。接入 HeyGen、HTTP API 或 MuseTalk 后才是可交付链路。
               </div>
             )}
             {digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForProduction && (

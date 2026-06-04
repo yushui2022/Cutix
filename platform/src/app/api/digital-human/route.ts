@@ -55,7 +55,7 @@ type DigitalHumanRequest = {
     clips: TtsClip[];
   };
   clips?: TtsClip[];
-  provider?: "auto" | "musetalk-cli" | "placeholder" | "http-api";
+  provider?: "auto" | "musetalk-cli" | "placeholder" | "http-api" | "heygen-api";
   alpha?: boolean;
   chromaKey?: ChromaKeyOptions;
   allowPlaceholder?: boolean;
@@ -71,14 +71,14 @@ type DigitalHumanClip = {
   sourceVideoUrl: string;
   alphaVideoUrl?: string;
   durationMs: number;
-  source: "musetalk-cli" | "ffmpeg-placeholder" | "http-api";
+  source: "musetalk-cli" | "ffmpeg-placeholder" | "http-api" | "heygen-api";
   alpha: boolean;
-  alphaMode: "none" | "chromakey-vp9";
+  alphaMode: "none" | "chromakey-vp9" | "provider-alpha-webm";
   alphaError?: string;
   placeholder: boolean;
 };
 
-type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api";
+type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api" | "heygen-api";
 
 type StoredDigitalHumanConfig = {
   provider: DigitalHumanProvider;
@@ -154,7 +154,7 @@ function normalizeChromaKey(input: ChromaKeyOptions | undefined): NormalizedChro
 }
 
 function normalizeDigitalHumanProvider(value: unknown): DigitalHumanProvider {
-  if (value === "musetalk-cli" || value === "http-api") return value;
+  if (value === "musetalk-cli" || value === "http-api" || value === "heygen-api") return value;
   return "placeholder";
 }
 
@@ -712,6 +712,202 @@ async function createHttpApiClip(
   return pollHttpApiClip(clip, statusUrl, pollHeaders);
 }
 
+function heygenApiBase(runtimeConfig: StoredDigitalHumanConfig) {
+  return (runtimeConfig.endpoint || process.env.HEYGEN_API_BASE_URL || "https://api.heygen.com").replace(/\/$/, "");
+}
+
+function heygenUploadBase() {
+  return (process.env.HEYGEN_UPLOAD_BASE_URL || "https://upload.heygen.com").replace(/\/$/, "");
+}
+
+function heygenApiKey(runtimeConfig: StoredDigitalHumanConfig) {
+  const key = runtimeConfig.apiKey || process.env.HEYGEN_API_KEY;
+  if (!key) throw new Error("HEYGEN_API_KEY or digital human API Key is not configured");
+  return key;
+}
+
+function heygenStringField(payload: Record<string, unknown>, ...keys: string[]) {
+  const nested = nestedHttpPayload(payload);
+  for (const key of keys) {
+    const value = stringField(payload, key) ?? stringField(nested, key);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+async function convertClipAudioToHeyGenMp3(clip: TtsClip, jobId: string) {
+  const ffmpeg = await getFfmpegCommand();
+  const audioPath = publicUrlToPath(clip.audioUrl);
+  const outputName = `${jobId}-${sanitizeId(clip.sceneId)}-heygen.mp3`;
+  const outputPath = path.join(outputDir, outputName);
+  await fs.access(audioPath);
+  await runCommand(
+    ffmpeg,
+    [
+      "-y",
+      "-i",
+      audioPath,
+      "-vn",
+      "-ar",
+      "44100",
+      "-ac",
+      "1",
+      "-b:a",
+      "128k",
+      outputPath,
+    ],
+    process.cwd(),
+  );
+  return outputPath;
+}
+
+async function uploadHeyGenAudio(audioPath: string, runtimeConfig: StoredDigitalHumanConfig) {
+  const response = await fetch(`${heygenUploadBase()}/v1/asset`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "X-API-KEY": heygenApiKey(runtimeConfig),
+    },
+    body: await fs.readFile(audioPath),
+    signal: AbortSignal.timeout(10 * 60 * 1000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HeyGen audio upload HTTP ${response.status}: ${await response.text()}`);
+  }
+
+  const payload = asRecord(await response.json());
+  const assetId = heygenStringField(payload, "id", "asset_id", "audio_asset_id");
+  if (!assetId) throw new Error(`HeyGen audio upload response missing asset id: ${JSON.stringify(payload)}`);
+  return assetId;
+}
+
+async function createHeyGenWebmJob(
+  clip: TtsClip,
+  jobId: string,
+  audioAssetId: string,
+  runtimeConfig: StoredDigitalHumanConfig,
+  brand: DigitalHumanRequest["brand"],
+) {
+  const avatarPoseId = brand?.digitalHuman?.avatarPath?.trim() || runtimeConfig.avatarPath;
+  if (!avatarPoseId) throw new Error("HeyGen avatar_pose_id is not configured");
+
+  const response = await fetch(`${heygenApiBase(runtimeConfig)}/v1/video.webm`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-KEY": heygenApiKey(runtimeConfig),
+    },
+    body: JSON.stringify({
+      avatar_pose_id: avatarPoseId,
+      input_audio: audioAssetId,
+      dimension: {
+        width: Number(process.env.HEYGEN_WEBM_WIDTH || "540"),
+        height: Number(process.env.HEYGEN_WEBM_HEIGHT || "960"),
+      },
+      title: `${brand?.name || "Cutix"} ${clip.sceneId} ${jobId}`,
+    }),
+    signal: AbortSignal.timeout(10 * 60 * 1000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HeyGen WebM job HTTP ${response.status}: ${await response.text()}`);
+  }
+
+  const payload = asRecord(await response.json());
+  const videoId = heygenStringField(payload, "video_id", "id");
+  if (!videoId) throw new Error(`HeyGen WebM response missing video_id: ${JSON.stringify(payload)}`);
+  return videoId;
+}
+
+async function pollHeyGenVideo(videoId: string, runtimeConfig: StoredDigitalHumanConfig) {
+  const pollIntervalMs = envNumber("HEYGEN_POLL_INTERVAL_MS", 5000, 1000, 60_000);
+  const pollTimeoutMs = envNumber("HEYGEN_POLL_TIMEOUT_MS", 20 * 60 * 1000, 30_000, 2 * 60 * 60 * 1000);
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= pollTimeoutMs) {
+    const response = await fetch(
+      `${heygenApiBase(runtimeConfig)}/v1/video_status.get?video_id=${encodeURIComponent(videoId)}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "X-API-KEY": heygenApiKey(runtimeConfig),
+        },
+        signal: AbortSignal.timeout(Math.min(60_000, pollIntervalMs + 10_000)),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`HeyGen status HTTP ${response.status}: ${await response.text()}`);
+    }
+
+    const payload = asRecord(await response.json());
+    const videoUrl = heygenStringField(payload, "video_url", "url", "download_url");
+    if (videoUrl) return videoUrl;
+
+    const status = statusFromPayload(payload);
+    if (["completed", "complete", "done", "success"].includes(status)) {
+      throw new Error(`HeyGen completed without video_url: ${JSON.stringify(payload)}`);
+    }
+    if (["failed", "error", "canceled", "cancelled"].includes(status)) {
+      throw new Error(errorFromPayload(payload));
+    }
+
+    await wait(pollIntervalMs);
+  }
+
+  throw new Error(`HeyGen job timed out after ${Math.round(pollTimeoutMs / 1000)}s`);
+}
+
+async function downloadHeyGenVideo(remoteUrl: string, outputName: string) {
+  const outputPath = path.join(outputDir, outputName);
+  const response = await fetch(remoteUrl, {
+    method: "GET",
+    signal: AbortSignal.timeout(10 * 60 * 1000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HeyGen video download HTTP ${response.status}: ${await response.text()}`);
+  }
+
+  await fs.writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
+  return {
+    outputPath,
+    outputUrl: `/output/digital-human/${outputName}`,
+  };
+}
+
+async function createHeyGenClip(
+  clip: TtsClip,
+  jobId: string,
+  runtimeConfig: StoredDigitalHumanConfig,
+  brand: DigitalHumanRequest["brand"],
+): Promise<DigitalHumanClip> {
+  const audioPath = await convertClipAudioToHeyGenMp3(clip, jobId);
+  const audioAssetId = await uploadHeyGenAudio(audioPath, runtimeConfig);
+  const videoId = await createHeyGenWebmJob(clip, jobId, audioAssetId, runtimeConfig, brand);
+  const remoteVideoUrl = await pollHeyGenVideo(videoId, runtimeConfig);
+  const outputName = `${jobId}-${sanitizeId(clip.sceneId)}-heygen.webm`;
+  const downloaded = await downloadHeyGenVideo(remoteVideoUrl, outputName);
+
+  return {
+    sceneId: clip.sceneId,
+    role: clip.role,
+    layout: clip.layout,
+    copy: clip.copy,
+    audioUrl: clip.audioUrl,
+    videoUrl: downloaded.outputUrl,
+    sourceVideoUrl: remoteVideoUrl,
+    alphaVideoUrl: downloaded.outputUrl,
+    durationMs: clip.durationMs,
+    source: "heygen-api",
+    alpha: true,
+    alphaMode: "provider-alpha-webm",
+    placeholder: false,
+  };
+}
+
 function needsDigitalHuman(scene: ScriptScene | undefined, clip: TtsClip) {
   if (scene?.needsDigitalHuman) return true;
   return digitalHumanLayouts.has(scene?.layout ?? clip.layout);
@@ -778,6 +974,8 @@ export async function POST(request: NextRequest) {
         addGeneratedClip(await createMuseTalkClip(clip, jobId, alphaEnabled, chromaKey, effectiveRuntimeConfig));
       } else if (effectiveProvider === "http-api") {
         addGeneratedClip(await createHttpApiClip(clip, effectiveRuntimeConfig, data.brand));
+      } else if (effectiveProvider === "heygen-api") {
+        addGeneratedClip(await createHeyGenClip(clip, jobId, effectiveRuntimeConfig, data.brand));
       } else {
         addGeneratedClip(await createPlaceholderClip(clip, jobId, alphaEnabled, chromaKey));
       }
@@ -798,7 +996,9 @@ export async function POST(request: NextRequest) {
         ? "musetalk-cli"
         : generated.some((clip) => clip.source === "http-api")
           ? "http-api"
-          : "ffmpeg-placeholder",
+          : generated.some((clip) => clip.source === "heygen-api")
+            ? "heygen-api"
+            : "ffmpeg-placeholder",
       alpha: generated.length > 0 && generated.every((clip) => clip.alpha),
       productionReady: generated.every((clip) => !clip.placeholder),
       chromaKey: alphaEnabled ? chromaKey : null,
