@@ -148,8 +148,6 @@ const ipConfigs: Record<string, RenderProps["brand"]> = {
   zhang: { name: "张姐美妆", primaryColor: "#EC4899", secondaryColor: "#1C0F1A", logoText: "张姐美妆" },
 };
 
-let remotionServeUrl: Promise<string> | null = null;
-
 function subtitleWords(text: string, durationMs: number) {
   const cleaned = text.replace(/\s+/g, "");
   const pieces: string[] = [];
@@ -301,12 +299,11 @@ function buildTimeline(data: RenderRequest): RenderProps {
 }
 
 function getRemotionServeUrl() {
-  if (!remotionServeUrl) {
-    remotionServeUrl = bundle({
-      entryPoint: path.join(process.cwd(), "src", "remotion", "index.ts"),
-    });
-  }
-  return remotionServeUrl;
+  // TTS clips are written into public/output at render time. Reusing an old
+  // bundle can make Remotion look for new audio inside a stale temp public dir.
+  return bundle({
+    entryPoint: path.join(process.cwd(), "src", "remotion", "index.ts"),
+  });
 }
 
 async function renderRemotion(props: RenderProps, outputPath: string) {
