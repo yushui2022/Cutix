@@ -1243,6 +1243,22 @@ export default function Home() {
     }
   };
 
+  const runDigitalHumanReadinessCheck = async () => {
+    const res = await fetch("/api/digital-human-config/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        brand: selectedIP,
+        network: true,
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    const payload = (await res.json()) as DigitalHumanReadinessResult;
+    setDigitalHumanTestResult(payload);
+    return payload;
+  };
+
   const handleTestDigitalHumanConfig = async () => {
     if (digitalHumanConfigHasUnsavedChanges) {
       setStatus("数字人接入有未保存变更，请先保存后再检查");
@@ -1253,18 +1269,7 @@ export default function Home() {
     setStatus("正在检查已保存的数字人接入...");
 
     try {
-      const res = await fetch("/api/digital-human-config/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brand: selectedIP,
-          network: true,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-
-      const payload = (await res.json()) as DigitalHumanReadinessResult;
-      setDigitalHumanTestResult(payload);
+      const payload = await runDigitalHumanReadinessCheck();
       const failCount = payload.checks.filter((item) => item.status === "fail").length;
       const warnCount = payload.checks.filter((item) => item.status === "warn").length;
       setStatus(
@@ -1545,17 +1550,26 @@ export default function Home() {
     }
 
     setFullWorkflowRunning(true);
-    setGenerating(true);
-    setCurrentTaskId("");
-    setResultUrl("");
-    setPreviewUrl("");
-    setCoverUrl("");
-    setScriptPreview(null);
-    setSelectionPreview(null);
-    setTtsPreview(null);
-    setDigitalHumanPreview(null);
-
     try {
+      setStatus("正在执行数字人生产预检...");
+      const readiness = await runDigitalHumanReadinessCheck();
+      const failCount = readiness.checks.filter((item) => item.status === "fail").length;
+      const warnCount = readiness.checks.filter((item) => item.status === "warn").length;
+      if (!readiness.productionReady) {
+        setShowSystemSettings(true);
+        throw new Error(`数字人生产预检未通过：${failCount} 个失败，${warnCount} 个提醒`);
+      }
+
+      setGenerating(true);
+      setCurrentTaskId("");
+      setResultUrl("");
+      setPreviewUrl("");
+      setCoverUrl("");
+      setScriptPreview(null);
+      setSelectionPreview(null);
+      setTtsPreview(null);
+      setDigitalHumanPreview(null);
+
       const shouldUseLlm = llmConfig.apiKeySet
         || llmConfig.provider !== defaultLlmConfig.provider
         || llmConfig.baseUrl !== defaultLlmConfig.baseUrl
