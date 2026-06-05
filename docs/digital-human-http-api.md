@@ -63,6 +63,7 @@ Authorization: Bearer <apiKey>
 
 - `videoUrl` 或 `alphaVideoUrl` 至少返回一个。
 - 有透明通道时优先返回 `alphaVideoUrl`。
+- 如果只返回本地 `/output/...mp4` 且请求未关闭 alpha，Cutix 会自动尝试用 FFmpeg chromakey 转出 VP9 alpha WebM；远程 URL 不会被本地兜底处理。
 - `sourceVideoUrl` 可选，不传时 Cutix 会使用 `videoUrl`。
 - `durationMs` 可选，不传时 Cutix 使用请求里的音频时长。
 
@@ -114,6 +115,7 @@ Cutix 会按以下环境变量轮询：
 - 测试占位只允许在前端显式测试使用。
 - 含测试占位的数字人结果会标记 `productionReady = false`，前端禁止提交最终成片任务。
 - 数字人接入检查会校验本机绝对 `avatarPath` 是否可读取；远程 URL 或非绝对路径会保留为提醒，由具体数字人服务自行解析。
+- 本地 HTTP 数字人服务可只返回普通本地 MP4，由 Cutix 统一做 chromakey 透明通道兜底；生产中仍建议服务端尽量返回干净绿幕或原生 alpha。
 
 ## 5. 推荐本地实现
 

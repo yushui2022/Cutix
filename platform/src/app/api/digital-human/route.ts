@@ -587,7 +587,7 @@ function httpPayloadToClip(clip: TtsClip, payload: Record<string, unknown>): Dig
   const videoUrl = alphaVideoUrl || stringField(data, "videoUrl");
   if (!videoUrl) return null;
 
-  const alpha = Boolean(alphaVideoUrl || data.alpha === true);
+  const providerAlpha = Boolean(alphaVideoUrl || data.alpha === true);
   return {
     sceneId: clip.sceneId,
     role: clip.role,
@@ -599,10 +599,36 @@ function httpPayloadToClip(clip: TtsClip, payload: Record<string, unknown>): Dig
     alphaVideoUrl,
     durationMs: numberField(data, "durationMs") ?? clip.durationMs,
     source: "http-api",
-    alpha,
-    alphaMode: alpha ? "chromakey-vp9" : "none",
+    alpha: providerAlpha,
+    alphaMode: providerAlpha ? "provider-alpha-webm" : "none",
     placeholder: false,
   };
+}
+
+async function addLocalAlphaToHttpClip(
+  httpClip: DigitalHumanClip,
+  alphaEnabled: boolean,
+  chromaKey: NormalizedChromaKeyOptions,
+): Promise<DigitalHumanClip> {
+  if (!alphaEnabled || httpClip.alpha || !httpClip.videoUrl.startsWith("/output/")) return httpClip;
+
+  try {
+    const sourcePath = publicUrlToPath(httpClip.videoUrl);
+    await fs.access(sourcePath);
+    const alphaResult = await createAlphaWebm(sourcePath, path.parse(sourcePath).name, chromaKey);
+    return {
+      ...httpClip,
+      videoUrl: alphaResult.outputUrl,
+      alphaVideoUrl: alphaResult.outputUrl,
+      alpha: true,
+      alphaMode: "chromakey-vp9",
+    };
+  } catch (error: unknown) {
+    return {
+      ...httpClip,
+      alphaError: getErrorMessage(error),
+    };
+  }
 }
 
 function statusFromPayload(payload: Record<string, unknown>) {
@@ -973,7 +999,13 @@ export async function POST(request: NextRequest) {
       if (effectiveProvider === "musetalk-cli") {
         addGeneratedClip(await createMuseTalkClip(clip, jobId, alphaEnabled, chromaKey, effectiveRuntimeConfig));
       } else if (effectiveProvider === "http-api") {
-        addGeneratedClip(await createHttpApiClip(clip, effectiveRuntimeConfig, data.brand));
+        addGeneratedClip(
+          await addLocalAlphaToHttpClip(
+            await createHttpApiClip(clip, effectiveRuntimeConfig, data.brand),
+            alphaEnabled,
+            chromaKey,
+          ),
+        );
       } else if (effectiveProvider === "heygen-api") {
         addGeneratedClip(await createHeyGenClip(clip, jobId, effectiveRuntimeConfig, data.brand));
       } else {

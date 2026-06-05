@@ -50,6 +50,7 @@
 42. 已在任务状态卡展示存储分布：Worker/任务状态区域会按输出、上传、任务数据三个目录显示本地占用，便于批量生产时定位空间增长来源。
 43. 已新增安全存储清理 MVP：`/api/storage-cleanup` 只扫描/清理 7 天以上的预览、封面和 MuseTalk 工作目录，前端任务状态卡可先 dry-run 扫描，再手动清理临时文件，不删除正式成片 MP4。
 44. 已新增 Duix 本地接入预设和 adapter：系统设置的数字人接入区可一键套用 `http://127.0.0.1:8789/generate`，Cutix 的 `npm run digital-human:duix-adapter` 会把统一契约转换成 Duix 原生 `/easy/submit`/`/easy/query`；同时保留 MuseTalk 服务预设。
+45. 已增强 HTTP 数字人 alpha 兜底：本地 HTTP Provider 返回普通 `/output/...mp4` 且未自带 `alphaVideoUrl` 时，`/api/digital-human` 会自动用 FFmpeg chromakey 转出 VP9 alpha WebM，方便 Duix/MuseTalk wrapper 输出进入 Remotion 分层合成。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -410,6 +411,7 @@ worker_events   — Worker 日志
 - [x] MuseTalk 数字人集成（单角色，MVP：统一 `/api/digital-human` 接口 + MuseTalk CLI 适配器 + FFmpeg 占位兜底）
 - [x] HTTP 数字人 API 接入配置（MVP：本地保存 endpoint/API Key，调用统一 `/api/digital-human` 适配）
 - [x] FFmpeg 抠绿 + alpha 通道（MVP：chromakey + VP9 WebM 透明通道 + 源片 MP4 保留）
+- [x] HTTP 数字人本地 MP4 alpha 兜底（MVP：HTTP provider 未返回 alpha 时对 `/output/...mp4` 进行 chromakey 转 WebM）
 - [x] Remotion 模板合成（MVP：数字人 alpha + B-roll + TTS 音频 + 字幕 Timeline）
 - [x] FFmpeg 后处理（MVP：H.264/AAC + 封面 + 低清预览 + loudnorm）
 - [x] 成品下载（MVP：结果预览 + 正式 MP4 下载）
