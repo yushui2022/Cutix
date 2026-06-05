@@ -338,6 +338,15 @@ type WorkerStatusPayload = {
     failed: number;
     canceled: number;
   };
+  storage?: {
+    totalBytes: number;
+    directories: Array<{
+      key: string;
+      label: string;
+      path: string;
+      bytes: number;
+    }>;
+  };
   generatedAt: string;
 };
 
@@ -567,6 +576,18 @@ const sceneLayoutLabel: Record<string, string> = {
 
 function formatDuration(ms: number) {
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatBytes(bytes: number) {
+  if (!bytes || !Number.isFinite(bytes)) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 function assetLocalAvatarPath(asset: Asset) {
@@ -1828,6 +1849,8 @@ export default function Home() {
     || Boolean(digitalHumanDraft.apiKey.trim());
   const healthyWorkerCount = workerStatus?.healthyWorkers.length ?? 0;
   const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
+  const storageTotalBytes = workerStatus?.storage?.totalBytes ?? 0;
+  const storageWarnBytes = 20 * 1024 * 1024 * 1024;
   const productionReadinessItems: Array<{
     key: string;
     label: string;
@@ -1857,6 +1880,12 @@ export default function Home() {
       label: "批量",
       status: count <= 10 || healthyWorkerCount > 0 ? "pass" : "warn",
       detail: `${count} 条 / ${targetPlatform}`,
+    },
+    {
+      key: "storage",
+      label: "存储",
+      status: storageTotalBytes > storageWarnBytes ? "warn" : "pass",
+      detail: formatBytes(storageTotalBytes),
     },
   ];
   const productionBlockerCount = productionReadinessItems.filter((item) => item.status === "fail").length;
