@@ -43,6 +43,7 @@
 35. 已新增 MuseTalk 本地 HTTP 服务脚本：`npm run digital-human:musetalk-service` 会启动 `http://127.0.0.1:8788/generate`，接收 Cutix 的数字人 HTTP 请求并调用本机 MuseTalk 输出口播片段。
 36. 已增强本地数字人健康检查：MuseTalk HTTP 服务 `/health` 会检查 Python、FFmpeg、MuseTalk 根目录、UNet 权重、配置文件、输出目录和服务任务目录；Cutix 的数字人接入检查会优先读取 `/health` 并把依赖状态展开到控制台，避免把错误 endpoint 或缺权重环境误判为可生产。
 37. 已补齐数字人素材绑定入口：素材上传会识别文件名中的 `avatar`、`musetalk`、`talking`、`数字人`、`口播`、`绿幕` 等关键词，将本地上传的数字人参考素材归为 `avatar` 类型并保存本地绝对路径；品牌配置页可从素材库 avatar 候选一键绑定到当前 IP 的数字人角色。
+38. 已增强数字人角色素材预检：数字人接入检查会校验本机绝对 `avatarPath` 是否可读取；远程 URL 或非绝对路径会提示由服务自行解析，MuseTalk CLI 模式下缺失或不可读的角色素材会阻止生产。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 

@@ -106,6 +106,42 @@ function check(key: string, label: string, status: ReadinessCheck["status"], mes
   return { key, label, status, message };
 }
 
+function isRemoteReference(value: string) {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+
+function isVerifiableLocalPath(value: string) {
+  if (!value || isRemoteReference(value)) return false;
+  if (value.startsWith("/uploads/") || value.startsWith("/output/")) return false;
+  return path.isAbsolute(value) || /^[a-z]:[\\/]/i.test(value) || value.startsWith("\\\\");
+}
+
+async function checkAvatarReference(
+  avatarPath: string,
+  missingStatus: ReadinessCheck["status"],
+): Promise<ReadinessCheck> {
+  if (!avatarPath) {
+    return check(
+      "avatar",
+      "角色素材",
+      missingStatus,
+      missingStatus === "fail" ? "未填写角色参考素材路径" : "未填写角色参考素材路径，服务需自行选择默认角色",
+    );
+  }
+
+  if (isRemoteReference(avatarPath)) {
+    return check("avatar", "角色素材", "warn", "角色参考素材是远程地址，Cutix 无法验证本地可读性");
+  }
+
+  if (!isVerifiableLocalPath(avatarPath)) {
+    return check("avatar", "角色素材", "warn", "角色参考素材不是本机绝对路径，数字人服务需自行解析");
+  }
+
+  return (await pathExists(avatarPath))
+    ? check("avatar", "角色素材", "pass", "角色参考素材可读取")
+    : check("avatar", "角色素材", "fail", "角色参考素材路径不可读取");
+}
+
 function normalizeCheckStatus(value: unknown): ReadinessCheck["status"] {
   if (value === "pass" || value === "warn" || value === "fail") return value;
   if (value === true || value === "ok" || value === "ready") return "pass";
@@ -334,7 +370,7 @@ async function buildChecks(config: StoredDigitalHumanConfig, request: TestReques
       if (request.network !== false) checks.push(...(await testHttpEndpoint(config)));
     }
     if (!profile?.voiceId) checks.push(check("voice", "声音标识", "warn", "未填写声音标识，服务需自行选择默认声音"));
-    if (!avatarPath) checks.push(check("avatar", "角色素材", "warn", "未填写角色参考素材路径，服务需自行选择默认角色"));
+    checks.push(await checkAvatarReference(avatarPath, "warn"));
   }
 
   if (config.provider === "musetalk-cli") {
@@ -344,13 +380,7 @@ async function buildChecks(config: StoredDigitalHumanConfig, request: TestReques
         ? check("musetalk-root", "MuseTalk", "pass", "已找到本地 MuseTalk 目录")
         : check("musetalk-root", "MuseTalk", "fail", "未找到 external/musetalk 目录"),
     );
-    checks.push(
-      avatarPath
-        ? (await pathExists(avatarPath))
-          ? check("avatar", "角色素材", "pass", "角色参考素材可读取")
-          : check("avatar", "角色素材", "fail", "角色参考素材路径不可读取")
-        : check("avatar", "角色素材", "fail", "未填写角色参考素材路径"),
-    );
+    checks.push(await checkAvatarReference(avatarPath, "fail"));
     checks.push(check("python", "Python", config.pythonPath ? "pass" : "fail", config.pythonPath || "未配置 Python"));
   }
 
