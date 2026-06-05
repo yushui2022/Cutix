@@ -382,6 +382,27 @@ type StorageCleanupResult = {
   generatedAt: string;
 };
 
+type DigitalHumanBenchmarkReport = {
+  fileName: string;
+  path: string;
+  bytes: number;
+  createdAt: string;
+  endpoint: string;
+  provider: string;
+  healthStatus: "pass" | "warn" | "fail" | "unknown";
+  healthMessage: string;
+  summary: {
+    count: number;
+    passed: number;
+    failed: number;
+    successRate: number;
+    averageElapsedMs: number;
+    p95ElapsedMs: number;
+    maxElapsedMs: number;
+    totalOutputBytes: number;
+  };
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
@@ -434,6 +455,20 @@ const currentRenderTaskStatusLabels: Record<RenderTask["status"], string> = {
   completed: "已完成",
   failed: "失败",
   canceled: "已取消",
+};
+
+const benchmarkHealthTone: Record<DigitalHumanBenchmarkReport["healthStatus"], string> = {
+  pass: "border-emerald-300/20 bg-emerald-300/10 text-emerald-100",
+  warn: "border-amber-300/20 bg-amber-300/10 text-amber-100",
+  fail: "border-red-300/20 bg-red-300/10 text-red-100",
+  unknown: "border-white/10 bg-white/[0.03] text-white/50",
+};
+
+const benchmarkHealthLabel: Record<DigitalHumanBenchmarkReport["healthStatus"], string> = {
+  pass: "健康",
+  warn: "提醒",
+  fail: "失败",
+  unknown: "未知",
 };
 
 const seedIps: IP[] = defaultBrands;
@@ -641,6 +676,11 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+function formatPercent(value: number) {
+  if (!Number.isFinite(value)) return "0%";
+  return `${Math.round(value * 100)}%`;
+}
+
 function assetLocalAvatarPath(asset: Asset) {
   return asset.localPath?.trim() ?? "";
 }
@@ -704,6 +744,7 @@ export default function Home() {
   const [cancelingTaskId, setCancelingTaskId] = useState("");
   const [renderTasks, setRenderTasks] = useState<RenderTask[]>([]);
   const [workerStatus, setWorkerStatus] = useState<WorkerStatusPayload | null>(null);
+  const [digitalHumanBenchmarkReports, setDigitalHumanBenchmarkReports] = useState<DigitalHumanBenchmarkReport[]>([]);
   const [storageCleanupRunning, setStorageCleanupRunning] = useState(false);
   const [storageCleanupResult, setStorageCleanupResult] = useState<StorageCleanupResult | null>(null);
   const [resultUrl, setResultUrl] = useState("");
@@ -734,6 +775,20 @@ export default function Home() {
     } catch {
       setWorkerStatus(null);
       return null;
+    }
+  }, []);
+
+  const loadDigitalHumanBenchmarkReports = useCallback(async () => {
+    try {
+      const res = await fetch("/api/digital-human-benchmark?limit=5");
+      if (!res.ok) throw new Error(await res.text());
+      const payload = (await res.json()) as { reports?: DigitalHumanBenchmarkReport[] };
+      const reports = Array.isArray(payload.reports) ? payload.reports : [];
+      setDigitalHumanBenchmarkReports(reports);
+      return reports;
+    } catch {
+      setDigitalHumanBenchmarkReports([]);
+      return [];
     }
   }, []);
 
@@ -932,12 +987,14 @@ export default function Home() {
 
   useEffect(() => {
     void loadWorkerStatus();
+    void loadDigitalHumanBenchmarkReports();
     const timer = window.setInterval(() => {
       void loadWorkerStatus();
+      void loadDigitalHumanBenchmarkReports();
     }, 5000);
 
     return () => window.clearInterval(timer);
-  }, [loadWorkerStatus]);
+  }, [loadDigitalHumanBenchmarkReports, loadWorkerStatus]);
 
   const selectedAssetList = useMemo(
     () => assets.filter((asset) => selectedAssets.includes(asset.id)),
@@ -2010,6 +2067,7 @@ export default function Home() {
   const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
   const storageTotalBytes = workerStatus?.storage?.totalBytes ?? 0;
   const storageWarnBytes = 20 * 1024 * 1024 * 1024;
+  const latestDigitalHumanBenchmark = digitalHumanBenchmarkReports[0];
   const productionReadinessItems: Array<{
     key: string;
     label: string;
@@ -3976,6 +4034,104 @@ export default function Home() {
                 </div>
               </div>
             )}
+            <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.025] p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-white/55">数字人压测</div>
+                  <div className="mt-0.5 text-[10px] text-white/35">读取本地 benchmark 报告，不会启动长任务</div>
+                </div>
+                {latestDigitalHumanBenchmark ? (
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                      benchmarkHealthTone[latestDigitalHumanBenchmark.healthStatus]
+                    }`}
+                  >
+                    {benchmarkHealthLabel[latestDigitalHumanBenchmark.healthStatus]}
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/45">
+                    无报告
+                  </span>
+                )}
+              </div>
+
+              {latestDigitalHumanBenchmark ? (
+                <div className="rounded-xl border border-white/8 bg-black/15 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold text-white">
+                        {latestDigitalHumanBenchmark.provider} · {latestDigitalHumanBenchmark.summary.passed}/
+                        {latestDigitalHumanBenchmark.summary.count} 通过
+                      </div>
+                      <div className="mt-1 truncate text-[10px] text-white/35">
+                        {new Date(latestDigitalHumanBenchmark.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                        {" · "}
+                        {latestDigitalHumanBenchmark.endpoint || "未记录 endpoint"}
+                      </div>
+                    </div>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                        latestDigitalHumanBenchmark.summary.failed > 0
+                          ? "border-red-300/20 bg-red-300/10 text-red-100"
+                          : "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                      }`}
+                    >
+                      {formatPercent(latestDigitalHumanBenchmark.summary.successRate)}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="rounded-lg bg-white/[0.03] p-2">
+                      <div className="text-[10px] text-white/35">平均</div>
+                      <div className="mt-0.5 text-xs font-semibold text-white">
+                        {formatDuration(latestDigitalHumanBenchmark.summary.averageElapsedMs)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-white/[0.03] p-2">
+                      <div className="text-[10px] text-white/35">P95</div>
+                      <div className="mt-0.5 text-xs font-semibold text-white">
+                        {formatDuration(latestDigitalHumanBenchmark.summary.p95ElapsedMs)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-white/[0.03] p-2">
+                      <div className="text-[10px] text-white/35">输出</div>
+                      <div className="mt-0.5 text-xs font-semibold text-white">
+                        {formatBytes(latestDigitalHumanBenchmark.summary.totalOutputBytes)}
+                      </div>
+                    </div>
+                  </div>
+                  {latestDigitalHumanBenchmark.healthMessage && (
+                    <div className="mt-2 rounded-lg border border-white/8 bg-black/15 p-2 text-[10px] leading-4 text-white/45">
+                      {latestDigitalHumanBenchmark.healthMessage}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-white/8 bg-black/15 p-3 text-[11px] leading-5 text-white/45">
+                  在客户 GPU 服务器上运行{" "}
+                  <span className="font-semibold text-white/70">npm run digital-human:benchmark -- --count 20</span>{" "}
+                  后，这里会显示最近压测结果。
+                </div>
+              )}
+
+              {digitalHumanBenchmarkReports.length > 1 && (
+                <div className="mt-3 space-y-2">
+                  {digitalHumanBenchmarkReports.slice(1, 4).map((report) => (
+                    <div className="flex items-center justify-between gap-3 rounded-lg bg-black/15 px-2.5 py-2" key={report.fileName}>
+                      <div className="min-w-0">
+                        <div className="truncate text-[11px] font-semibold text-white/70">{report.fileName}</div>
+                        <div className="mt-0.5 truncate text-[10px] text-white/35">
+                          {new Date(report.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-xs font-semibold text-white/75">{formatPercent(report.summary.successRate)}</div>
+                        <div className="mt-0.5 text-[10px] text-white/35">{formatDuration(report.summary.averageElapsedMs)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             {renderTasks.length > 0 && (
               <div className="mt-4 space-y-2">
                 <div className="text-xs font-semibold text-white/55">最近生成任务</div>

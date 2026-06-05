@@ -83,6 +83,16 @@ platform/data/digital-human/benchmarks/benchmark-<timestamp>.json
 | `summary.totalOutputBytes` | 可读取输出文件总大小 |
 | `results[]` | 每个 scene 的耗时、输出 URL、文件状态或错误 |
 
+## 3.1 Web 后台查看
+
+Cutix Web 后台会读取最近的 benchmark 报告：
+
+```text
+GET /api/digital-human-benchmark?limit=5
+```
+
+首页右侧“任务状态”卡片会显示最近一次压测的成功率、平均耗时、P95、输出体积和健康检查状态。Web 端当前只读取报告，不直接启动长耗时压测任务；正式压测仍建议在客户 GPU 服务器终端执行 CLI。
+
 ## 4. 一期验收建议
 
 第一轮至少跑：
