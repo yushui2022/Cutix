@@ -15,6 +15,7 @@ These directories may exist on a developer machine, but should stay untracked:
 external/remotion/    # Remotion upstream source, reference only
 external/musetalk/    # MuseTalk local digital-human reference implementation
 external/cosyvoice/   # CosyVoice local TTS research checkout
+external/duix-avatar/ # Duix-Avatar local digital-human platform; ignored
 external/smartcut/    # smartcut reference only; not used in the MVP path
 ```
 
@@ -38,6 +39,7 @@ locally:
 git clone --depth 1 https://github.com/remotion-dev/remotion.git external/remotion
 git clone --depth 1 https://github.com/TMElyralab/MuseTalk.git external/musetalk
 git clone --depth 1 https://github.com/FunAudioLLM/CosyVoice.git external/cosyvoice
+git clone --depth 1 https://github.com/duixcom/Duix-Avatar.git external/duix-avatar
 git clone --depth 1 https://github.com/skeskinen/smartcut.git external/smartcut
 ```
 
@@ -48,6 +50,9 @@ the same path. Keep it untracked.
 
 - `smartcut`: not part of the MVP.
 - `remotion`: use npm packages in `platform/`; upstream source is reference only.
-- `musetalk`: selected local reference for a digital-human provider adapter.
+- `duix-avatar`: selected first local digital-human service to validate for
+  customer acceptance. Integrate through a local HTTP adapter instead of
+  vendoring source into the Cutix app.
+- `musetalk`: selected self-owned fallback for a digital-human provider adapter.
 - `cosyvoice`: optional local TTS provider; production use requires separate
   benchmark and license review.

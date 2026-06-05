@@ -39,7 +39,7 @@
 31. 已完成 IP 级数字人角色档案 MVP：品牌配置可维护数字人角色名称、声音标识、参考素材路径和备注；生成数字人时会把当前 IP 的角色信息传给 HTTP API/MuseTalk。
 32. 已完成 HeyGen 云端参考接入 MVP：系统可调用 HeyGen WebM API 生成效果参考片段，但它不解锁正式生产；老板要求本地化部署后，云 API 只作为临时效果评估，不进入交付主链路。
 33. 已完成一键式生产入口 MVP：主流程按钮会自动串联文案/分镜、选材、TTS、数字人、成片任务提交，并支持 `count` 批量创建渲染任务。
-34. 已明确本地数字人主路线：第一期以 MuseTalk + CosyVoice 2 本地服务为主，Duix-Avatar 作为平台型备选，LatentSync 作为高质量口型备选；HunyuanVideo-Avatar、OmniAvatar、EchoMimicV2/V3 暂列研究项，不进入近期交付承诺，不再把云数字人平台作为正式交付依赖。
+34. 已明确本地数字人主路线：老板要求本地化部署后，第一期以 Duix-Avatar/HeyGem 本地服务作为验收优先 Provider，MuseTalk + CosyVoice 2/3 作为自研保底链路，LatentSync 作为高质量口型备选；HunyuanVideo-Avatar、OmniAvatar、EchoMimicV2/V3 暂列研究项，不进入近期交付承诺，不再把云数字人平台作为正式交付依赖。
 35. 已新增 MuseTalk 本地 HTTP 服务脚本：`npm run digital-human:musetalk-service` 会启动 `http://127.0.0.1:8788/generate`，接收 Cutix 的数字人 HTTP 请求并调用本机 MuseTalk 输出口播片段。
 36. 已增强本地数字人健康检查：MuseTalk HTTP 服务 `/health` 会检查 Python、FFmpeg、MuseTalk 根目录、UNet 权重、配置文件、输出目录和服务任务目录；Cutix 的数字人接入检查会优先读取 `/health` 并把依赖状态展开到控制台，避免把错误 endpoint 或缺权重环境误判为可生产。
 37. 已补齐数字人素材绑定入口：素材上传会识别文件名中的 `avatar`、`musetalk`、`talking`、`数字人`、`口播`、`绿幕` 等关键词，将本地上传的数字人参考素材归为 `avatar` 类型并保存本地绝对路径；品牌配置页可从素材库 avatar 候选一键绑定到当前 IP 的数字人角色。
@@ -48,14 +48,17 @@
 40. 已新增主界面生产就绪摘要：一键生产区域会汇总数字人、素材库、Worker 和批量数量状态，显示阻断项和提醒项，让用户提交前就能看到当前能否批量生产。
 41. 已把本地存储占用接入 Worker 监控：`/api/worker-status` 会统计 `public/output`、`public/uploads` 和 `data` 目录大小，主界面生产就绪摘要会显示当前存储占用，批量渲染前可提前发现输出目录膨胀问题。
 42. 已在任务状态卡展示存储分布：Worker/任务状态区域会按输出、上传、任务数据三个目录显示本地占用，便于批量生产时定位空间增长来源。
+43. 已新增安全存储清理 MVP：`/api/storage-cleanup` 只扫描/清理 7 天以上的预览、封面和 MuseTalk 工作目录，前端任务状态卡可先 dry-run 扫描，再手动清理临时文件，不删除正式成片 MP4。
+44. 已新增 Duix 本地接入预设和 adapter：系统设置的数字人接入区可一键套用 `http://127.0.0.1:8789/generate`，Cutix 的 `npm run digital-human:duix-adapter` 会把统一契约转换成 Duix 原生 `/easy/submit`/`/easy/query`；同时保留 MuseTalk 服务预设。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 上传并绑定真实绿幕 avatar 素材，然后在本机或客户 GPU 服务器跑通 `TTS -> musetalk-service -> /api/digital-human -> Remotion` 的真实本地数字人成片。
-2. 完成本地数字人部署包：整理 MuseTalk、CosyVoice、FFmpeg、显卡驱动、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
-3. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
-4. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
-5. 增加 IP/品牌、标签体系、模板包的后台管理页面。
+1. 部署并验证 Duix-Avatar/HeyGem 本地服务，跑通 `Cutix -> Duix 本地数字人 -> Remotion` 的真实本地数字人成片；如 Duix 原生接口不兼容 Cutix 契约，补 `duix-adapter`。
+2. 并行上传并绑定真实绿幕 avatar 素材，在本机或客户 GPU 服务器跑通 `TTS -> musetalk-service -> /api/digital-human -> Remotion` 的自研保底链路。
+3. 完成本地数字人部署包：整理 Duix、MuseTalk、CosyVoice、FFmpeg、显卡驱动、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
+4. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
+5. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
+6. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
 ## 1. 产品形态
 
@@ -99,13 +102,14 @@
 
 ---
 
-## 2. 已拉取的项目
+## 2. 外部项目目录与接入规划
 
 ```
 C:\Users\xiaoy\Desktop\cutix\
 ├── remotion/       ← remotion-dev/remotion      模板渲染引擎（React 组件 → MP4）
 ├── smartcut/       ← skeskinen/smartcut          长视频无损裁切（素材预处理）
-├── musetalk/       ← TMElyralab/MuseTalk          数字人唇形驱动（音频 → 口播视频）
+├── duix-avatar/    ← duixcom/Duix-Avatar          本地数字人平台（下一步拉取/部署验证）
+├── musetalk/       ← TMElyralab/MuseTalk          数字人唇形驱动（自研保底 Provider）
 ├── cosyvoice/      ← FunAudioLLM/CosyVoice        TTS 语音合成 + 声音克隆
 └── plan.md                                       本文件
 ```
@@ -115,7 +119,8 @@ C:\Users\xiaoy\Desktop\cutix\
 | 项目 | 在这个系统里的作用 | 部署要求 |
 |---|---|---|
 | Remotion | 最终视频合成引擎。根据 Timeline JSON 把数字人片段、B-roll 素材、字幕、品牌水印叠在一起渲染成 MP4 | Node.js 服务器，Chrome |
-| MuseTalk | 数字人"口型驱动"。输入音频 + 角色参考图/视频 → 输出口播视频（绿幕背景） | NVIDIA GPU，12GB+ VRAM |
+| Duix-Avatar / HeyGem | 本地数字人服务层。输入口播文本/音频和角色配置 → 输出数字人口播视频，作为第一期验收优先 Provider | NVIDIA GPU，本地 Docker/服务部署，授权需复核 |
+| MuseTalk | 数字人"口型驱动"保底。输入音频 + 角色参考图/视频 → 输出口播视频（绿幕背景） | NVIDIA GPU，12GB+ VRAM |
 | CosyVoice 2 | TTS 语音合成。输入文案 → 输出 WAV 音频 + 音素时间戳（用于唇形同步和字幕对齐） | NVIDIA GPU，8GB+ VRAM |
 | smartcut | 素材预处理。把长视频无损裁切成短片段（二期才引入，一期不依赖） | Python，FFmpeg |
 | FFmpeg | 贯穿全流程。抠绿、编码标准化、响度归一化、多尺寸导出、封面生成 | 系统级依赖 |
@@ -169,8 +174,8 @@ C:\Users\xiaoy\Desktop\cutix\
 
 | 优先级 | 项目 | 当前定位 | 选择理由 | 风险/边界 |
 |---|---|---|---|---|
-| 第一主线 | MuseTalk + CosyVoice 2/3 | 本地 TTS + 本地口型驱动，先跑通可交付链路 | 已经适配进 Cutix；形态简单，输入音频 + 角色参考视频，输出口播片段；适合分段生成、失败重试、Remotion 合成 | 主要是口型/半身表达，不是完整“真人拍摄级”生成；绿幕/alpha 效果依赖角色素材质量 |
-| 第一备选 | Duix-Avatar | 平台型本地数字人方案 | 更接近“本地数字人平台”，可并行验证 API、Docker、角色管理、声音能力；客户若强调完整数字人平台，它比单模型更像交付件 | 体量更重，授权和商业边界必须复核；要验证是否能稳定输出 Cutix 需要的透明/可抠图口播片段 |
+| 验收优先 | Duix-Avatar / HeyGem | 平台型本地数字人服务 | 更接近“本地数字人平台”，适合老板要求的本地化部署；系统设置已提供本地 HTTP 预设，Cutix 仍负责文案、素材、编排和 Remotion 合成 | 体量更重，授权和商业边界必须复核；如果原生 API 与 Cutix 契约不一致，需要 `duix-adapter` 转换协议 |
+| 自研保底 | MuseTalk + CosyVoice 2/3 | 本地 TTS + 本地口型驱动，保证 Cutix 不被单一平台绑定 | 已经适配进 Cutix；形态简单，输入音频 + 角色参考视频，输出口播片段；适合分段生成、失败重试、Remotion 合成 | 主要是口型/半身表达，不是完整“真人拍摄级”生成；绿幕/alpha 效果依赖角色素材质量 |
 | 质量备选 | LatentSync | 高清口型同步 Provider | 适合替换或补强 MuseTalk 的唇形质量；保留在同一个 HTTP Provider 契约后面 | 推理成本、批量速度和 Windows/服务器部署复杂度要实测，暂不承诺一期主链路 |
 | 二期研究 | HunyuanVideo-Avatar / OmniAvatar | 生成式高质量数字人视频 | 画面表现更强，适合后续做全身、半身、情绪、肢体增强 | 通常更吃 GPU、吞吐不可控、商业授权更复杂；不适合现在作为批量视频工厂主线 |
 | 辅助增强 | EchoMimicV2/V3 / LivePortrait | 头动、表情、姿态增强 | 可以提升头像自然度，或给静态角色做表情动效 | 不负责完整生产链路，只能作为增强模块 |
@@ -185,7 +190,9 @@ C:\Users\xiaoy\Desktop\cutix\
 4. Provider 要可替换，不能把 Cutix 绑定死在单一模型或云服务上。
 5. 第一阶段优先验证“稳定批量产出”，不要把重型生成式数字人作为交付承诺。
 
-### 4.1 为什么第一期选 MuseTalk + CosyVoice 2/3
+### 4.1 为什么第一期是 Duix 优先 + MuseTalk 保底
+
+老板明确要求数字人本地化部署后，第一期验收优先用 Duix-Avatar/HeyGem。它更像一个可以交给客户部署的本地数字人服务层。MuseTalk + CosyVoice 继续保留为自研保底链路，避免 Cutix 被单一平台绑定，也方便后续替换 LatentSync 或其他本地模型。
 
 | 维度 | MuseTalk | CosyVoice 2/3 |
 |---|---|---|
@@ -196,15 +203,15 @@ C:\Users\xiaoy\Desktop\cutix\
 | 部署 | 单独封装成本地 HTTP 服务，接 Cutix `/api/digital-human` | 通过 FastAPI 或兼容服务接 Cutix `/api/tts` |
 | 与 Cutix 的关系 | 只负责每个 scene 的数字人片段 | 只负责每个 scene 的音频与字幕时间轴 |
 
-第一期选择它们不是因为它们画质一定最强，而是因为它们最适合当前交付目标：本地部署、可分段、可排队、可失败重试、可被 Remotion 二次合成。客户要的是批量商业 IP 视频工厂，主链路稳定性比单条 demo 的惊艳程度更重要。
+保留 MuseTalk/CosyVoice 不是因为它们画质一定最强，而是因为它们最适合做 Cutix 自研保底：本地部署、可分段、可排队、可失败重试、可被 Remotion 二次合成。客户要的是批量商业 IP 视频工厂，主链路稳定性比单条 demo 的惊艳程度更重要。
 
 ### 4.1.1 本地数字人验证顺序
 
-1. 先拿一个绿幕半身 avatar 跑通 `CosyVoice -> MuseTalk -> alpha WebM -> Remotion`。
-2. 同一段文案生成 3 次，检查口型漂移、眨眼/头部稳定性、音画同步、背景抠除边缘。
+1. 先部署 Duix-Avatar/HeyGem 本地服务，用 Cutix 的本地 HTTP Provider 触发生成。
+2. 如果 Duix 原生接口与 Cutix 契约不一致，补 `duix-adapter`，让 Cutix 仍只面对统一 `videoUrl/alphaVideoUrl/statusUrl`。
 3. 同一 IP 连续生成 20 个 scene，检查 GPU 显存泄漏、队列阻塞、失败重试和磁盘增长。
-4. 并行部署 Duix-Avatar，验证它是否能输出 Cutix 可消费的 MP4/WebM，作为客户偏平台化时的备选。
-5. 如果 MuseTalk 质量不够，再把 LatentSync 接成第二个 Provider，而不是重写 Cutix 主流程。
+4. 并行拿一个绿幕半身 avatar 跑通 `CosyVoice -> MuseTalk -> alpha WebM -> Remotion`，作为自研保底。
+5. 如果 Duix/MuseTalk 质量不够，再把 LatentSync 接成第二个 Provider，而不是重写 Cutix 主流程。
 
 ### 4.2 数字人生产流水线
 
@@ -382,7 +389,7 @@ worker_events   — Worker 日志
 | 模板渲染 | Remotion renderMedia |
 | 媒体处理 | FFmpeg |
 | TTS | CosyVoice 2（Edge TTS 作为 MVP 免 GPU 备选） |
-| 数字人 | MuseTalk（Wav2Lip 作为备选） |
+| 数字人 | Duix-Avatar/HeyGem（验收优先）+ MuseTalk（自研保底）+ LatentSync（高清备选） |
 | LLM | 本地模型（vLLM/Ollama）或 API provider 抽象层 |
 
 ---

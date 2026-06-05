@@ -15,6 +15,7 @@ import {
   Settings,
   Sparkles,
   Tags,
+  Trash2,
   UploadCloud,
   UserRound,
   WandSparkles,
@@ -350,6 +351,27 @@ type WorkerStatusPayload = {
   generatedAt: string;
 };
 
+type StorageCleanupCandidate = {
+  scope: "previews" | "covers" | "musetalk-work";
+  path: string;
+  kind: "file" | "directory";
+  bytes: number;
+  lastModifiedAt: string;
+};
+
+type StorageCleanupResult = {
+  dryRun: boolean;
+  maxAgeDays: number;
+  scopes: Array<StorageCleanupCandidate["scope"]>;
+  candidateCount: number;
+  totalBytes: number;
+  deletedCount: number;
+  reclaimedBytes: number;
+  errors: string[];
+  candidates: StorageCleanupCandidate[];
+  generatedAt: string;
+};
+
 type PipelineStep = {
   name: string;
   detail: string;
@@ -509,6 +531,19 @@ const digitalHumanProviderLabel: Record<DigitalHumanProvider, string> = {
   "heygen-api": "HeyGen 云端参考",
 };
 
+const digitalHumanHttpPresets = [
+  {
+    label: "Duix 本地",
+    endpoint: "http://127.0.0.1:8789/generate",
+    detail: "适合 Duix.Avatar / HeyGem 本地部署；Cutix 先打到 duix-adapter，再转发到 Duix /easy/submit。",
+  },
+  {
+    label: "MuseTalk 服务",
+    endpoint: "http://127.0.0.1:8788/generate",
+    detail: "使用 Cutix 自带 MuseTalk HTTP wrapper，输入 audioPath + avatarPath，输出口播片段。",
+  },
+];
+
 const digitalHumanReadinessStatusLabel: Record<DigitalHumanReadinessCheck["status"], string> = {
   pass: "通过",
   warn: "提醒",
@@ -530,7 +565,7 @@ const productionReadinessLabel: Record<DigitalHumanReadinessCheck["status"], str
 const digitalHumanSetupSteps = [
   {
     title: "准备数字人服务",
-    detail: "交付主链路使用 MuseTalk 或本地 HTTP 服务；HeyGen 只保留为云端效果参考。",
+    detail: "交付主链路优先接 Duix 本地服务，MuseTalk 作为自研保底；HeyGen 只保留为云端效果参考。",
   },
   {
     title: "返回口播视频",
@@ -651,6 +686,8 @@ export default function Home() {
   const [cancelingTaskId, setCancelingTaskId] = useState("");
   const [renderTasks, setRenderTasks] = useState<RenderTask[]>([]);
   const [workerStatus, setWorkerStatus] = useState<WorkerStatusPayload | null>(null);
+  const [storageCleanupRunning, setStorageCleanupRunning] = useState(false);
+  const [storageCleanupResult, setStorageCleanupResult] = useState<StorageCleanupResult | null>(null);
   const [resultUrl, setResultUrl] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
@@ -681,6 +718,50 @@ export default function Home() {
       return null;
     }
   }, []);
+
+  const runStorageCleanup = useCallback(async (dryRun: boolean) => {
+    setStorageCleanupRunning(true);
+    setStatus(dryRun ? "正在扫描可清理临时文件..." : "正在清理预览、封面和数字人临时文件...");
+
+    try {
+      const res = await fetch("/api/storage-cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dryRun,
+          maxAgeDays: 7,
+          scopes: ["previews", "covers", "musetalk-work"],
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as StorageCleanupResult;
+      setStorageCleanupResult(payload);
+
+      if (dryRun) {
+        setStatus(
+          payload.candidateCount > 0
+            ? `扫描到 ${payload.candidateCount} 个可清理临时项，预计释放 ${formatBytes(payload.totalBytes)}`
+            : "没有发现 7 天以上的可清理临时文件",
+        );
+      } else {
+        setStatus(
+          payload.errors.length > 0
+            ? `已清理 ${payload.deletedCount} 项，${payload.errors.length} 项失败`
+            : `已清理 ${payload.deletedCount} 项，释放 ${formatBytes(payload.reclaimedBytes)}`,
+        );
+        await loadWorkerStatus();
+      }
+
+      return payload;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus(`存储清理失败: ${message}`);
+      return null;
+    } finally {
+      setStorageCleanupRunning(false);
+    }
+  }, [loadWorkerStatus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1048,6 +1129,16 @@ export default function Home() {
       notes: `${asset.name} / ${asset.duration} / ${asset.orientation}`,
     });
     setStatus(`已绑定「${asset.name}」到「${brandDraft.name}」数字人角色，保存品牌后生效`);
+  };
+
+  const applyDigitalHumanHttpPreset = (label: string, endpoint: string) => {
+    setDigitalHumanDraft((current) => ({
+      ...current,
+      provider: "http-api",
+      endpoint,
+    }));
+    setDigitalHumanTestResult(null);
+    setStatus(`已套用 ${label} 预设，请保存并检查数字人接入`);
   };
 
   const saveTags = async (asset: Asset) => {
@@ -2092,6 +2183,23 @@ export default function Home() {
                   返回 <span className="font-semibold text-cyan-50">videoUrl</span>、<span className="font-semibold text-cyan-50">alphaVideoUrl</span> 或 <span className="font-semibold text-cyan-50">statusUrl</span>。
                   HeyGen 模式会调用云端，只用于效果参考，不解锁正式生产。
                 </div>
+                <div className="mt-3 rounded-lg border border-white/8 bg-black/15 p-3">
+                  <div className="mb-2 text-xs font-semibold text-white/70">本地服务预设</div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {digitalHumanHttpPresets.map((preset) => (
+                      <button
+                        className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-left transition hover:border-cyan-300/25 hover:bg-cyan-300/[0.06]"
+                        key={preset.label}
+                        onClick={() => applyDigitalHumanHttpPreset(preset.label, preset.endpoint)}
+                        type="button"
+                      >
+                        <div className="text-xs font-semibold text-white">{preset.label}</div>
+                        <div className="mt-1 truncate text-[10px] text-cyan-100/65">{preset.endpoint}</div>
+                        <div className="mt-1 text-[10px] leading-4 text-white/40">{preset.detail}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -2126,7 +2234,7 @@ export default function Home() {
                   <input
                     className={fieldClass}
                     onChange={(event) => setDigitalHumanDraft({ ...digitalHumanDraft, endpoint: event.target.value })}
-                    placeholder={digitalHumanDraft.provider === "heygen-api" ? "https://api.heygen.com（可留空）" : "http://127.0.0.1:7860/generate"}
+                    placeholder={digitalHumanDraft.provider === "heygen-api" ? "https://api.heygen.com（可留空）" : "http://127.0.0.1:8789/generate 或 http://127.0.0.1:8788/generate"}
                     value={digitalHumanDraft.endpoint}
                   />
                 </label>
@@ -3671,7 +3779,10 @@ export default function Home() {
             {workerStatus?.storage && (
               <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.025] p-3">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="text-xs font-semibold text-white/55">本地存储占用</div>
+                  <div>
+                    <div className="text-xs font-semibold text-white/55">本地存储占用</div>
+                    <div className="mt-0.5 text-[10px] text-white/35">清理只处理预览、封面和 MuseTalk 临时目录</div>
+                  </div>
                   <span
                     className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
                       storageTotalBytes > storageWarnBytes
@@ -3682,6 +3793,41 @@ export default function Home() {
                     {formatBytes(workerStatus.storage.totalBytes)}
                   </span>
                 </div>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <button
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={storageCleanupRunning}
+                    onClick={() => void runStorageCleanup(true)}
+                    type="button"
+                  >
+                    <RefreshCcw className={`h-3.5 w-3.5 ${storageCleanupRunning ? "animate-spin" : ""}`} />
+                    扫描可清理
+                  </button>
+                  {storageCleanupResult && storageCleanupResult.dryRun && storageCleanupResult.candidateCount > 0 && (
+                    <button
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300/20 bg-amber-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-amber-100 transition hover:bg-amber-300/15 disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={storageCleanupRunning}
+                      onClick={() => void runStorageCleanup(false)}
+                      type="button"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      清理临时文件
+                    </button>
+                  )}
+                </div>
+                {storageCleanupResult && (
+                  <div className="mb-3 rounded-lg border border-white/8 bg-black/15 p-2.5 text-[11px] leading-5 text-white/55">
+                    {storageCleanupResult.dryRun ? "扫描结果" : "清理结果"}：
+                    {storageCleanupResult.dryRun
+                      ? ` ${storageCleanupResult.candidateCount} 项，可释放 ${formatBytes(storageCleanupResult.totalBytes)}`
+                      : ` 删除 ${storageCleanupResult.deletedCount} 项，释放 ${formatBytes(storageCleanupResult.reclaimedBytes)}`}
+                    {storageCleanupResult.errors.length > 0 && (
+                      <span className="ml-1 text-amber-100">
+                        {storageCleanupResult.errors.length} 项失败
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-2">
                   {workerStatus.storage.directories.map((directory) => (
                     <div className="flex items-center justify-between gap-3 rounded-lg bg-black/15 px-2.5 py-2" key={directory.key}>

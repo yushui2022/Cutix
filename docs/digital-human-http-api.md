@@ -117,6 +117,13 @@ Cutix 会按以下环境变量轮询：
 
 ## 5. 推荐本地实现
 
+老板要求本地化部署后，推荐把本地数字人服务分成两类接入：
+
+- **Duix.Avatar / HeyGem 本地服务**：作为第一期验收优先方案。系统设置里可以套用 `Duix 本地` 预设，默认指向 Cutix adapter：`http://127.0.0.1:8789/generate`。adapter 接收 Cutix 的 `text/audioPath/avatarPath/voiceId`，默认转发到 Duix 原生 `http://127.0.0.1:8383/easy/submit`，再把 Duix 结果转换回 `videoUrl/alphaVideoUrl/statusUrl`。
+- **MuseTalk 本地服务**：作为 Cutix 自研保底方案。它只负责 lip-sync 口播片段，不替代素材库、自动文案、分镜编排和 Remotion 合成。
+
+### MuseTalk wrapper
+
 生产落地时建议把 MuseTalk 包装成一个本地 FastAPI 服务：
 
 1. 接收上述 `POST` 请求。
@@ -140,3 +147,38 @@ http://127.0.0.1:8788/generate
 ```
 
 部署细节见：`docs/musetalk-local-service.md`。
+
+### Duix adapter
+
+Duix 本地服务建议通过 Cutix adapter 接入，而不是让 Cutix 直接依赖 Duix 原生字段：
+
+```powershell
+cd platform
+npm run digital-human:duix-adapter
+```
+
+默认生成接口：
+
+```text
+http://127.0.0.1:8789/generate
+```
+
+默认转发目标：
+
+```text
+http://127.0.0.1:8383/easy/submit
+http://127.0.0.1:8383/easy/query
+```
+
+常用环境变量：
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `DUIX_ADAPTER_PORT` | `8789` | adapter 监听端口 |
+| `DUIX_API_BASE` | `http://127.0.0.1:8383` | Duix 本地视频服务地址 |
+| `DUIX_SUBMIT_URL` | `${DUIX_API_BASE}/easy/submit` | Duix 提交接口 |
+| `DUIX_QUERY_URL` | `${DUIX_API_BASE}/easy/query` | Duix 查询接口 |
+| `DUIX_AVATAR_PATH` | 空 | 未从 IP 档案传入 `avatarPath` 时的默认角色视频 |
+| `DUIX_AUDIO_HOST_DIR` / `DUIX_AUDIO_CONTAINER_DIR` | 空 | 需要把 Cutix 音频复制到 Duix Docker 映射目录时使用 |
+| `DUIX_VIDEO_HOST_DIR` / `DUIX_VIDEO_CONTAINER_DIR` | 空 | 需要把角色视频复制到 Duix Docker 映射目录时使用 |
+| `DUIX_RESULT_HOST_DIR` / `DUIX_RESULT_CONTAINER_DIR` | 空 | Duix 返回容器内结果路径时，用于映射回宿主机并复制到 Cutix 输出目录 |
