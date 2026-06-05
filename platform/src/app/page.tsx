@@ -512,6 +512,12 @@ const digitalHumanReadinessTone: Record<DigitalHumanReadinessCheck["status"], st
   fail: "border-red-300/20 bg-red-300/10 text-red-100",
 };
 
+const productionReadinessLabel: Record<DigitalHumanReadinessCheck["status"], string> = {
+  pass: "就绪",
+  warn: "注意",
+  fail: "阻断",
+};
+
 const digitalHumanSetupSteps = [
   {
     title: "准备数字人服务",
@@ -1822,6 +1828,38 @@ export default function Home() {
     || Boolean(digitalHumanDraft.apiKey.trim());
   const healthyWorkerCount = workerStatus?.healthyWorkers.length ?? 0;
   const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
+  const productionReadinessItems: Array<{
+    key: string;
+    label: string;
+    status: DigitalHumanReadinessCheck["status"];
+    detail: string;
+  }> = [
+    {
+      key: "digital-human",
+      label: "数字人",
+      status: productionDigitalHumanReady ? "pass" : "fail",
+      detail: productionDigitalHumanReady ? digitalHumanConnectionStatus : "未接本地生产服务",
+    },
+    {
+      key: "assets",
+      label: "素材库",
+      status: availableAssetCount > 0 ? "pass" : "fail",
+      detail: `${availableAssetCount} 个可用素材`,
+    },
+    {
+      key: "worker",
+      label: "Worker",
+      status: healthyWorkerCount > 0 ? "pass" : "warn",
+      detail: healthyWorkerCount > 0 ? `${healthyWorkerCount} 个在线，队列 ${queueActiveCount}` : "未检测到独立 Worker",
+    },
+    {
+      key: "batch",
+      label: "批量",
+      status: count <= 10 || healthyWorkerCount > 0 ? "pass" : "warn",
+      detail: `${count} 条 / ${targetPlatform}`,
+    },
+  ];
+  const productionBlockerCount = productionReadinessItems.filter((item) => item.status === "fail").length;
   const storyboardScenes = scriptPreview?.videoPlan?.scenes ?? scriptPreview?.scenes ?? [];
 
   return (
@@ -2240,6 +2278,34 @@ export default function Home() {
             </div>
 
             <div className="mt-5 border-t border-white/5 pt-4">
+              <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.025] p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-white/80">生产就绪</div>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                      productionBlockerCount === 0
+                        ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                        : "border-red-300/20 bg-red-300/10 text-red-100"
+                    }`}
+                  >
+                    {productionBlockerCount === 0 ? "可提交" : `${productionBlockerCount} 个阻断`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {productionReadinessItems.map((item) => (
+                    <div
+                      className={`rounded-lg border px-2.5 py-2 ${digitalHumanReadinessTone[item.status]}`}
+                      key={item.key}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold">{item.label}</span>
+                        <span className="text-[10px] opacity-80">{productionReadinessLabel[item.status]}</span>
+                      </div>
+                      <div className="mt-1 truncate text-[10px] opacity-75">{item.detail}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <button
                 className="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={fullWorkflowRunning || generating}
@@ -2249,9 +2315,9 @@ export default function Home() {
                 <Play className="h-4 w-4" />
                 {fullWorkflowRunning
                   ? "生产中..."
-                  : productionDigitalHumanReady
+                  : productionBlockerCount === 0
                     ? `一键生成 ${count} 条视频`
-                    : "先接入数字人再生成"}
+                    : "处理阻断项后生成"}
               </button>
               <div className="mt-2 text-xs leading-5 text-white/45">
                 系统会自动完成文案、分镜编排、选材、数字人口播和成片提交。
