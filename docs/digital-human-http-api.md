@@ -180,6 +180,7 @@ http://127.0.0.1:8383/easy/query
 | `DUIX_API_BASE` | `http://127.0.0.1:8383` | Duix 本地视频服务地址 |
 | `DUIX_SUBMIT_URL` | `${DUIX_API_BASE}/easy/submit` | Duix 提交接口 |
 | `DUIX_QUERY_URL` | `${DUIX_API_BASE}/easy/query` | Duix 查询接口 |
+| `DUIX_HEALTH_ALLOW_UNREACHABLE` | 空 | 仅调试用；设为 `1` 时 Duix 原生服务不可达只记 warn，否则阻断 Cutix 生产预检 |
 | `DUIX_AVATAR_PATH` | 空 | 未从 IP 档案传入 `avatarPath` 时的默认角色视频 |
 | `DUIX_AUDIO_HOST_DIR` / `DUIX_AUDIO_CONTAINER_DIR` | 空 | 需要把 Cutix 音频复制到 Duix Docker 映射目录时使用 |
 | `DUIX_VIDEO_HOST_DIR` / `DUIX_VIDEO_CONTAINER_DIR` | 空 | 需要把角色视频复制到 Duix Docker 映射目录时使用 |

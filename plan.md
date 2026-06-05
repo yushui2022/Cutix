@@ -51,6 +51,7 @@
 43. 已新增安全存储清理 MVP：`/api/storage-cleanup` 只扫描/清理 7 天以上的预览、封面和 MuseTalk 工作目录，前端任务状态卡可先 dry-run 扫描，再手动清理临时文件，不删除正式成片 MP4。
 44. 已新增 Duix 本地接入预设和 adapter：系统设置的数字人接入区可一键套用 `http://127.0.0.1:8789/generate`，Cutix 的 `npm run digital-human:duix-adapter` 会把统一契约转换成 Duix 原生 `/easy/submit`/`/easy/query`；同时保留 MuseTalk 服务预设。
 45. 已增强 HTTP 数字人 alpha 兜底：本地 HTTP Provider 返回普通 `/output/...mp4` 且未自带 `alphaVideoUrl` 时，`/api/digital-human` 会自动用 FFmpeg chromakey 转出 VP9 alpha WebM，方便 Duix/MuseTalk wrapper 输出进入 Remotion 分层合成。
+46. 已增强 Duix adapter 生产预检：Duix 原生 `/easy/query` 不可达时，adapter `/health` 默认返回 fail 并阻断 Cutix 一键生产；只有显式设置 `DUIX_HEALTH_ALLOW_UNREACHABLE=1` 才允许调试阶段降级为 warn。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 

@@ -375,10 +375,11 @@ async function endpointReachable() {
     });
     return { key: "duix-api", label: "Duix API", status: "pass", target: duixApiBase, message: "reachable" };
   } catch (error) {
+    const allowUnreachable = process.env.DUIX_HEALTH_ALLOW_UNREACHABLE === "1";
     return {
       key: "duix-api",
       label: "Duix API",
-      status: "warn",
+      status: allowUnreachable ? "warn" : "fail",
       target: duixApiBase,
       message: error instanceof Error ? error.message : String(error),
     };
