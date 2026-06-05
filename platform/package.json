@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "assets:seed": "node scripts/seed-public-assets.mjs",
+    "digital-human:benchmark": "node scripts/digital-human-benchmark.mjs",
     "digital-human:musetalk-service": "node scripts/musetalk-http-service.mjs",
     "digital-human:duix-adapter": "node scripts/duix-http-adapter.mjs",
     "render:local-assets": "node scripts/render-existing-assets-video.mjs",

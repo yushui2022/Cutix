@@ -54,11 +54,12 @@
 46. 已增强 Duix adapter 生产预检：Duix 原生 `/easy/query` 不可达时，adapter `/health` 默认返回 fail 并阻断 Cutix 一键生产；只有显式设置 `DUIX_HEALTH_ALLOW_UNREACHABLE=1` 才允许调试阶段降级为 warn。
 47. 已新增本地视觉打标配置入口：`/api/vision-config` 支持在系统设置保存本地视觉模型 endpoint/API Key，`/api/assets/analyze` 会读取该配置并把关键帧路径发给本地视觉服务；`docs/vision-analyzer-http-api.md` 已记录对接契约。
 48. 已复核老板要求的本地化数字人约束：正式交付链路只接受客户内网/本机部署的数字人服务；`docs/local-digital-human-selection.md` 已明确 Duix-Avatar/HeyGem 为一期验收优先，MuseTalk + CosyVoice 为自研保底，LatentSync 为质量替换，云 API 只允许做效果参考。
+49. 已新增本地数字人连续生成压测脚本：`npm run digital-human:benchmark` 会按 Cutix 数字人 HTTP 契约连续提交多个 scene，记录 Provider 健康检查、成功率、平均耗时、P95、输出文件大小和逐 scene 错误，报告写入 `platform/data/digital-human/benchmarks/`；详见 `docs/digital-human-benchmark.md`。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 部署并验证 Duix-Avatar/HeyGem 本地服务，跑通 `Cutix -> Duix 本地数字人 -> Remotion` 的真实本地数字人成片；如 Duix 原生接口不兼容 Cutix 契约，继续补强 `duix-adapter`。
-2. 并行上传并绑定真实绿幕 avatar 素材，在本机或客户 GPU 服务器跑通 `CosyVoice -> musetalk-service -> /api/digital-human -> Remotion` 的自研保底链路。
+1. 部署并验证 Duix-Avatar/HeyGem 本地服务，跑通 `Cutix -> Duix 本地数字人 -> Remotion` 的真实本地数字人成片；验证时先用 `digital-human:benchmark --count 20` 记录稳定性，再提交一键成片。
+2. 并行上传并绑定真实绿幕 avatar 素材，在本机或客户 GPU 服务器跑通 `CosyVoice -> musetalk-service -> /api/digital-human -> Remotion` 的自研保底链路，并同样跑 20 scene benchmark。
 3. 完成本地数字人部署包：整理 Duix、MuseTalk、CosyVoice、FFmpeg、NVIDIA 驱动/CUDA、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
 4. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
 5. 给本地视觉打标服务补一个参考实现或适配器，先支持 Qwen-VL/Ollama/vLLM 任选一条本地模型链路。

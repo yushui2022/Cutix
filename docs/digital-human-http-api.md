@@ -150,6 +150,17 @@ http://127.0.0.1:8788/generate
 
 部署细节见：`docs/musetalk-local-service.md`。
 
+### 连续生成压测
+
+部署 Duix adapter、MuseTalk service 或其他本地数字人 Provider 后，先用统一 benchmark 脚本验证连续生成稳定性：
+
+```powershell
+cd platform
+npm run digital-human:benchmark -- --endpoint http://127.0.0.1:8789/generate --audio C:\cutix-test\speech.wav --avatar C:\cutix-test\avatar-green.mp4 --count 20
+```
+
+报告会写入 `platform/data/digital-human/benchmarks/`，用于记录成功率、平均耗时、P95 耗时、输出文件大小和单个 scene 错误。详细说明见：`docs/digital-human-benchmark.md`。
+
 ### Duix adapter
 
 Duix 本地服务建议通过 Cutix adapter 接入，而不是让 Cutix 直接依赖 Duix 原生字段：
