@@ -3668,6 +3668,35 @@ export default function Home() {
                 )}
               </div>
             )}
+            {workerStatus?.storage && (
+              <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.025] p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-white/55">本地存储占用</div>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                      storageTotalBytes > storageWarnBytes
+                        ? "border-amber-300/20 bg-amber-300/10 text-amber-100"
+                        : "border-white/10 bg-white/[0.03] text-white/60"
+                    }`}
+                  >
+                    {formatBytes(workerStatus.storage.totalBytes)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {workerStatus.storage.directories.map((directory) => (
+                    <div className="flex items-center justify-between gap-3 rounded-lg bg-black/15 px-2.5 py-2" key={directory.key}>
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-white/70">{directory.label}</div>
+                        <div className="mt-0.5 truncate text-[10px] text-white/35">{directory.path}</div>
+                      </div>
+                      <div className="shrink-0 text-xs font-semibold text-white/70">
+                        {formatBytes(directory.bytes)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {renderTasks.length > 0 && (
               <div className="mt-4 space-y-2">
                 <div className="text-xs font-semibold text-white/55">最近生成任务</div>
