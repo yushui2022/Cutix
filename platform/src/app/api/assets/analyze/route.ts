@@ -52,12 +52,43 @@ type VisionResponse = {
   provider?: unknown;
 };
 
+type VisionConfig = {
+  endpoint: string;
+  apiKey?: string;
+};
+
 const dataDir = path.join(process.cwd(), "data");
 const assetsFile = path.join(dataDir, "assets.json");
+const visionConfigFile = path.join(dataDir, "vision-config.json");
 const publicDir = path.join(process.cwd(), "public");
 
-function visionEndpoint() {
-  return process.env.CUTIX_VISION_ANALYZER_URL || process.env.VISION_MODEL_ENDPOINT || "";
+function normalizeVisionConfig(value: unknown): VisionConfig {
+  if (typeof value !== "object" || value === null) return { endpoint: "" };
+  const raw = value as Record<string, unknown>;
+  return {
+    endpoint: typeof raw.endpoint === "string" ? raw.endpoint.trim() : "",
+    apiKey: typeof raw.apiKey === "string" && raw.apiKey ? raw.apiKey : undefined,
+  };
+}
+
+async function readVisionConfig(): Promise<VisionConfig> {
+  const envEndpoint = process.env.CUTIX_VISION_ANALYZER_URL || process.env.VISION_MODEL_ENDPOINT || "";
+  if (envEndpoint) {
+    return {
+      endpoint: envEndpoint,
+      apiKey: process.env.CUTIX_VISION_ANALYZER_KEY || process.env.VISION_MODEL_API_KEY || undefined,
+    };
+  }
+
+  try {
+    const raw = await fs.readFile(visionConfigFile, "utf8");
+    return normalizeVisionConfig(JSON.parse(raw));
+  } catch (error: unknown) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      return { endpoint: "" };
+    }
+    throw error;
+  }
 }
 
 function normalizeTags(value: unknown) {
@@ -94,11 +125,14 @@ async function writeAssets(assets: Asset[]) {
   await fs.writeFile(assetsFile, JSON.stringify(assets, null, 2), "utf8");
 }
 
-async function callVisionService(asset: Asset, endpoint: string): Promise<VisionResponse> {
+async function callVisionService(asset: Asset, config: VisionConfig): Promise<VisionResponse> {
   const keyframes = asset.analysis?.keyframes ?? [];
-  const response = await fetch(endpoint, {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+
+  const response = await fetch(config.endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({
       asset: {
         id: asset.id,
@@ -120,7 +154,7 @@ async function callVisionService(asset: Asset, endpoint: string): Promise<Vision
   return (await response.json()) as VisionResponse;
 }
 
-async function analyzeAsset(asset: Asset, endpoint: string) {
+async function analyzeAsset(asset: Asset, config: VisionConfig) {
   const keyframes = asset.analysis?.keyframes ?? [];
   const baseAnalysis: AssetAnalysis = {
     status: keyframes.length > 0 ? "keyframed" : asset.analysis?.status ?? "pending",
@@ -145,7 +179,7 @@ async function analyzeAsset(asset: Asset, endpoint: string) {
     };
   }
 
-  if (!endpoint) {
+  if (!config.endpoint) {
     return {
       ...asset,
       analysis: {
@@ -156,12 +190,12 @@ async function analyzeAsset(asset: Asset, endpoint: string) {
     };
   }
 
-  const result = await callVisionService(asset, endpoint);
+  const result = await callVisionService(asset, config);
   const visionTags = normalizeTags(result.tags);
   const mergedTags = Array.from(new Set([...asset.tags, ...visionTags])).slice(0, 16);
   const provider = typeof result.provider === "string" && result.provider.trim()
     ? result.provider.trim()
-    : endpoint;
+    : config.endpoint;
   const summary = typeof result.summary === "string" && result.summary.trim()
     ? result.summary.trim()
     : undefined;
@@ -187,7 +221,7 @@ export async function POST(request: NextRequest) {
   const body: unknown = await request.json();
   const data = typeof body === "object" && body !== null ? body as AnalyzeRequest : {};
   const assets = await readAssets();
-  const endpoint = visionEndpoint();
+  const visionConfig = await readVisionConfig();
   const targetIds = data.all
     ? assets.filter((asset) => (asset.analysis?.keyframes ?? []).length > 0).map((asset) => asset.id)
     : data.assetId
@@ -208,7 +242,7 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    const nextAsset = await analyzeAsset(asset, endpoint);
+    const nextAsset = await analyzeAsset(asset, visionConfig);
     nextAssets.push(nextAsset);
     updated += 1;
   }
@@ -218,7 +252,7 @@ export async function POST(request: NextRequest) {
   const firstAsset = data.assetId ? nextAssets.find((asset) => asset.id === data.assetId) : undefined;
   return Response.json(
     {
-      configured: Boolean(endpoint),
+      configured: Boolean(visionConfig.endpoint),
       updated,
       asset: firstAsset,
       assets: data.all ? nextAssets.filter((asset) => targetIdSet.has(asset.id)) : undefined,

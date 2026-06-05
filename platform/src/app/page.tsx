@@ -98,6 +98,16 @@ type LlmConfigDraft = Omit<PublicLlmConfig, "apiKeySet" | "apiKeyPreview"> & {
   apiKey: string;
 };
 
+type PublicVisionConfig = {
+  endpoint: string;
+  apiKeySet: boolean;
+  apiKeyPreview: string;
+};
+
+type VisionConfigDraft = Omit<PublicVisionConfig, "apiKeySet" | "apiKeyPreview"> & {
+  apiKey: string;
+};
+
 type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api" | "heygen-api";
 
 type PublicDigitalHumanConfig = {
@@ -387,6 +397,12 @@ const defaultLlmConfig: PublicLlmConfig = {
   apiKeyPreview: "",
 };
 
+const defaultVisionConfig: PublicVisionConfig = {
+  endpoint: "",
+  apiKeySet: false,
+  apiKeyPreview: "",
+};
+
 const defaultDigitalHumanConfig: PublicDigitalHumanConfig = {
   provider: "placeholder",
   endpoint: "",
@@ -646,6 +662,8 @@ export default function Home() {
   const [templateDraft, setTemplateDraft] = useState<Template>(seedTemplates[0]);
   const [llmConfig, setLlmConfig] = useState<PublicLlmConfig>(defaultLlmConfig);
   const [llmDraft, setLlmDraft] = useState<LlmConfigDraft>({ ...defaultLlmConfig, apiKey: "" });
+  const [visionConfig, setVisionConfig] = useState<PublicVisionConfig>(defaultVisionConfig);
+  const [visionDraft, setVisionDraft] = useState<VisionConfigDraft>({ ...defaultVisionConfig, apiKey: "" });
   const [digitalHumanConfig, setDigitalHumanConfig] = useState<PublicDigitalHumanConfig>(defaultDigitalHumanConfig);
   const [digitalHumanDraft, setDigitalHumanDraft] = useState<DigitalHumanConfigDraft>({
     ...defaultDigitalHumanConfig,
@@ -816,6 +834,28 @@ export default function Home() {
       })
       .catch(() => {
         if (!cancelled) setStatus("大模型接口配置加载失败，当前显示默认本地接口");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/vision-config")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load vision config"))))
+      .then((payload: PublicVisionConfig) => {
+        if (cancelled) return;
+        setVisionConfig(payload);
+        setVisionDraft({
+          endpoint: payload.endpoint,
+          apiKey: "",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("视觉打标配置加载失败，当前显示未接入状态");
       });
 
     return () => {
@@ -1323,6 +1363,34 @@ export default function Home() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("大模型接口保存失败: " + message);
+    }
+  };
+
+  const saveVisionConfig = async (clearApiKey = false) => {
+    try {
+      const payload: Record<string, unknown> = {
+        endpoint: visionDraft.endpoint,
+      };
+      if (visionDraft.apiKey.trim()) payload.apiKey = visionDraft.apiKey.trim();
+      if (clearApiKey) payload.clearApiKey = true;
+
+      const res = await fetch("/api/vision-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const nextConfig = (await res.json()) as PublicVisionConfig;
+      setVisionConfig(nextConfig);
+      setVisionDraft({
+        endpoint: nextConfig.endpoint,
+        apiKey: "",
+      });
+      setStatus(nextConfig.endpoint ? "已保存本地视觉打标服务" : "已清空本地视觉打标服务");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("视觉打标配置保存失败: " + message);
     }
   };
 
@@ -2128,6 +2196,71 @@ export default function Home() {
               >
                 保存大模型接口
               </button>
+            </section>
+
+            <section className={cardBase}>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-white/40">Vision</div>
+                  <h2 className="mt-1 text-base font-semibold text-white">本地视觉打标</h2>
+                  <p className="mt-1 text-xs text-white/50">用于关键帧识别、素材标签补全和自动选材。</p>
+                </div>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                  visionConfig.endpoint
+                    ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                    : "border-white/10 bg-white/5 text-white/50"
+                }`}
+                >
+                  {visionConfig.endpoint ? "本地服务已配置" : "未接入"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3">
+                <label className="block text-xs font-medium text-white/60">
+                  视觉模型服务地址
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setVisionDraft({ ...visionDraft, endpoint: event.target.value })}
+                    placeholder="http://127.0.0.1:8791/analyze"
+                    value={visionDraft.endpoint}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-white/60">
+                  API Key
+                  <input
+                    className={fieldClass}
+                    onChange={(event) => setVisionDraft({ ...visionDraft, apiKey: event.target.value })}
+                    placeholder={
+                      visionConfig.apiKeySet
+                        ? `已保存 ${visionConfig.apiKeyPreview}，留空保留`
+                        : "本地服务可留空"
+                    }
+                    type="password"
+                    value={visionDraft.apiKey}
+                  />
+                </label>
+              </div>
+              <div className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/10 p-3 text-[11px] leading-5 text-cyan-100/85">
+                接口会收到素材元信息和关键帧本机路径，返回 <span className="font-semibold text-cyan-50">tags</span>、<span className="font-semibold text-cyan-50">summary</span> 和 <span className="font-semibold text-cyan-50">provider</span>。
+              </div>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button
+                  className="btn-primary inline-flex flex-1 items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                  onClick={() => saveVisionConfig()}
+                  type="button"
+                >
+                  保存视觉打标服务
+                </button>
+                {visionConfig.apiKeySet && (
+                  <button
+                    className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-semibold text-white/70 transition hover:bg-white/[0.07] hover:text-white"
+                    onClick={() => saveVisionConfig(true)}
+                    type="button"
+                  >
+                    清除 Key
+                  </button>
+                )}
+              </div>
             </section>
 
             <section className={cardBase}>

@@ -52,6 +52,7 @@
 44. 已新增 Duix 本地接入预设和 adapter：系统设置的数字人接入区可一键套用 `http://127.0.0.1:8789/generate`，Cutix 的 `npm run digital-human:duix-adapter` 会把统一契约转换成 Duix 原生 `/easy/submit`/`/easy/query`；同时保留 MuseTalk 服务预设。
 45. 已增强 HTTP 数字人 alpha 兜底：本地 HTTP Provider 返回普通 `/output/...mp4` 且未自带 `alphaVideoUrl` 时，`/api/digital-human` 会自动用 FFmpeg chromakey 转出 VP9 alpha WebM，方便 Duix/MuseTalk wrapper 输出进入 Remotion 分层合成。
 46. 已增强 Duix adapter 生产预检：Duix 原生 `/easy/query` 不可达时，adapter `/health` 默认返回 fail 并阻断 Cutix 一键生产；只有显式设置 `DUIX_HEALTH_ALLOW_UNREACHABLE=1` 才允许调试阶段降级为 warn。
+47. 已新增本地视觉打标配置入口：`/api/vision-config` 支持在系统设置保存本地视觉模型 endpoint/API Key，`/api/assets/analyze` 会读取该配置并把关键帧路径发给本地视觉服务；`docs/vision-analyzer-http-api.md` 已记录对接契约。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -59,7 +60,7 @@
 2. 并行上传并绑定真实绿幕 avatar 素材，在本机或客户 GPU 服务器跑通 `TTS -> musetalk-service -> /api/digital-human -> Remotion` 的自研保底链路。
 3. 完成本地数字人部署包：整理 Duix、MuseTalk、CosyVoice、FFmpeg、显卡驱动、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
 4. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
-5. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
+5. 给本地视觉打标服务补一个参考实现或适配器，先支持 Qwen-VL/Ollama/vLLM 任选一条本地模型链路。
 6. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
 ## 1. 产品形态

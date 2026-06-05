@@ -1,43 +1,62 @@
-# Cutix 本地视觉打标 API 对接契约
+# Cutix 视觉打标 HTTP API 对接契约
 
-Cutix 上传视频后会先用 FFmpeg 抽关键帧。配置本地视觉模型服务后，`/api/assets/analyze` 会把这些关键帧提交给视觉服务，由视觉服务返回场景、人物、产品、镜头类型等标签。
+Cutix 上传视频或图片后会先做本地元信息读取、缩略图生成和关键帧抽取。视觉打标服务只需要接收关键帧路径和素材元信息，返回标签、摘要和服务标识。
 
-## 1. 启用方式
+## 1. 配置入口
 
-在运行 `platform` 时设置任一环境变量：
+在 Web 后台打开「系统设置」 -> 「视觉打标服务」，填写本地 HTTP endpoint，例如：
 
-```bash
-CUTIX_VISION_ANALYZER_URL=http://127.0.0.1:7861/analyze
+```text
+http://127.0.0.1:8890/analyze
 ```
 
-兼容旧变量名：
+也可以用环境变量覆盖后台配置：
 
-```bash
-VISION_MODEL_ENDPOINT=http://127.0.0.1:7861/analyze
+```text
+CUTIX_VISION_ANALYZER_URL=http://127.0.0.1:8890/analyze
+CUTIX_VISION_ANALYZER_KEY=local-secret
 ```
 
-不配置时，Cutix 不会伪造视觉标签，只会在素材上显示“未配置本地视觉模型服务，已保留关键帧等待打标”。
+环境变量优先级高于后台保存的 `platform/data/vision-config.json`。
 
-## 2. 请求结构
+## 2. 请求格式
 
-视觉服务会收到 `POST` 请求：
+Cutix 会对 endpoint 发送 `POST` JSON：
 
 ```json
 {
   "asset": {
     "id": "asset-id",
-    "name": "门店人流素材",
+    "name": "门店客流",
     "type": "video",
-    "tags": ["视频", "B-roll", "门店"],
+    "tags": ["门店", "人流"],
     "orientation": "9:16",
-    "duration": "8.4s"
+    "duration": "12.4s"
   },
   "frames": [
     {
-      "url": "/uploads/keyframes/asset-id-1.jpg",
-      "path": "C:\\Users\\xiaoy\\Desktop\\cutix\\platform\\public\\uploads\\keyframes\\asset-id-1.jpg"
+      "url": "/uploads/keyframes/asset-1.jpg",
+      "path": "C:\\Users\\xiaoy\\Desktop\\cutix\\platform\\public\\uploads\\keyframes\\asset-1.jpg"
     }
   ]
+}
+```
+
+如果配置了 API Key，Cutix 会带：
+
+```http
+Authorization: Bearer <apiKey>
+```
+
+## 3. 响应格式
+
+视觉服务返回：
+
+```json
+{
+  "tags": ["门店", "排队", "收银台", "高峰期", "餐饮招商"],
+  "summary": "画面是餐饮门店高峰期客流和收银场景，可用于招商或转化率证明段落。",
+  "provider": "local-qwen2.5-vl"
 }
 ```
 
@@ -45,31 +64,13 @@ VISION_MODEL_ENDPOINT=http://127.0.0.1:7861/analyze
 
 | 字段 | 说明 |
 |---|---|
-| `asset` | 当前素材的基础信息和已有标签 |
-| `frames[].url` | 前端可访问的关键帧 URL |
-| `frames[].path` | 本机绝对路径，适合本地视觉模型直接读取 |
+| `tags` | 字符串数组，Cutix 会和已有标签合并，最多保留 16 个 |
+| `summary` | 可选，用于素材卡片展示和后续人工复核 |
+| `provider` | 可选，记录本地视觉服务名称 |
 
-## 3. 返回结构
+## 4. 交付规则
 
-视觉服务返回：
-
-```json
-{
-  "provider": "local-qwen-vl",
-  "summary": "门店内顾客排队，适合餐饮招商案例证明段落。",
-  "tags": ["门店", "人流", "顾客", "案例", "证明", "餐饮"]
-}
-```
-
-Cutix 会把 `tags` 合并进素材标签，并在素材卡上显示 `summary`。如果没有返回标签，Cutix 会保留原标签并显示“本地视觉模型已分析，未返回新标签”。
-
-## 4. 推荐实现
-
-建议用本地 FastAPI 包一层视觉模型：
-
-1. 接收上述 `POST` 请求。
-2. 读取 `frames[].path`。
-3. 调用本地多模态模型识别场景、人物、产品、镜头类型和用途。
-4. 返回 `summary` 和标准化标签。
-
-标签最好落在 Cutix 标签体系里：场景、人物、产品、情绪、镜头类型、用途、IP、平台。
+- 视觉打标必须走本地服务或客户内网服务，不依赖云 API。
+- endpoint 未配置时，Cutix 仍会保留上传、抽帧、人工标签和自动选材能力，只是不会补充视觉模型标签。
+- 视觉模型失败时不会删除原有标签，素材仍可人工复核后启用。
+- 服务返回的标签会进入素材库标签体系，并被 `/api/selection` 用于后续自动选材。
