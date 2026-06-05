@@ -24,7 +24,7 @@ export const tagTaxonomy: TagCategory[] = [
     id: "person",
     label: "人物",
     description: "顾客、员工、创始人、数字人等画面主体",
-    tags: ["顾客", "员工", "老板", "讲师", "数字人", "口播", "人流"],
+    tags: ["顾客", "员工", "老板", "讲师", "数字人", "口播", "绿幕", "人流"],
   },
   {
     id: "product",
@@ -83,8 +83,9 @@ const tagRules: TagRule[] = [
   { tag: "员工", keywords: ["员工", "团队", "staff", "team"] },
   { tag: "老板", keywords: ["老板", "创始人", "founder", "boss"] },
   { tag: "讲师", keywords: ["讲师", "老师", "trainer", "teacher"] },
-  { tag: "数字人", keywords: ["数字人", "avatar", "musetalk", "talking"] },
-  { tag: "口播", keywords: ["口播", "主持", "host", "talking"] },
+  { tag: "数字人", keywords: ["数字人", "虚拟人", "avatar", "musetalk", "digital human", "talking"] },
+  { tag: "口播", keywords: ["口播", "主持", "讲解", "host", "presenter", "spokesperson", "talking"] },
+  { tag: "绿幕", keywords: ["绿幕", "抠绿", "green screen", "greenscreen", "chroma"] },
   { tag: "人流", keywords: ["人流", "客流", "crowd", "traffic"] },
   { tag: "产品", keywords: ["产品", "商品", "product", "sku"] },
   { tag: "包装", keywords: ["包装", "外盒", "package"] },
@@ -115,9 +116,9 @@ const tagRules: TagRule[] = [
   { tag: "企业服务", keywords: ["企业服务", "saas", "b2b"] },
   { tag: "零售", keywords: ["零售", "retail"] },
   { tag: "教育", keywords: ["教育", "课程", "education", "course"] },
-  { tag: "9:16", keywords: ["9-16", "9_16", "vertical", "竖屏"], types: ["video", "image"] },
-  { tag: "16:9", keywords: ["16-9", "16_9", "wide", "横屏"], types: ["video", "image"] },
-  { tag: "1:1", keywords: ["1-1", "1_1", "square", "方形"], types: ["video", "image"] },
+  { tag: "9:16", keywords: ["9-16", "9_16", "vertical", "竖屏"], types: ["video", "image", "avatar"] },
+  { tag: "16:9", keywords: ["16-9", "16_9", "wide", "横屏"], types: ["video", "image", "avatar"] },
+  { tag: "1:1", keywords: ["1-1", "1_1", "square", "方形"], types: ["video", "image", "avatar"] },
 ];
 
 export function getAllTaxonomyTags() {

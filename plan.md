@@ -42,10 +42,11 @@
 34. 已明确本地数字人主路线：第一期以 MuseTalk + CosyVoice 2 本地服务为主，Duix-Avatar 作为平台型备选，LatentSync 作为高质量口型备选；HunyuanVideo-Avatar、OmniAvatar、EchoMimicV2/V3 暂列研究项，不进入近期交付承诺，不再把云数字人平台作为正式交付依赖。
 35. 已新增 MuseTalk 本地 HTTP 服务脚本：`npm run digital-human:musetalk-service` 会启动 `http://127.0.0.1:8788/generate`，接收 Cutix 的数字人 HTTP 请求并调用本机 MuseTalk 输出口播片段。
 36. 已增强本地数字人健康检查：MuseTalk HTTP 服务 `/health` 会检查 Python、FFmpeg、MuseTalk 根目录、UNet 权重、配置文件、输出目录和服务任务目录；Cutix 的数字人接入检查会优先读取 `/health` 并把依赖状态展开到控制台，避免把错误 endpoint 或缺权重环境误判为可生产。
+37. 已补齐数字人素材绑定入口：素材上传会识别文件名中的 `avatar`、`musetalk`、`talking`、`数字人`、`口播`、`绿幕` 等关键词，将本地上传的数字人参考素材归为 `avatar` 类型并保存本地绝对路径；品牌配置页可从素材库 avatar 候选一键绑定到当前 IP 的数字人角色。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 准备真实绿幕 avatar 样例，并在本机或客户 GPU 服务器跑通 `TTS -> musetalk-service -> /api/digital-human -> Remotion` 的真实本地数字人成片。
+1. 上传并绑定真实绿幕 avatar 素材，然后在本机或客户 GPU 服务器跑通 `TTS -> musetalk-service -> /api/digital-human -> Remotion` 的真实本地数字人成片。
 2. 完成本地数字人部署包：整理 MuseTalk、CosyVoice、FFmpeg、显卡驱动、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
 3. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
 4. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。

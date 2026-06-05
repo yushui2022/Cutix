@@ -55,6 +55,7 @@ type Asset = {
   matchScore: number;
   url?: string;
   thumbnailUrl?: string;
+  localPath?: string;
   fileName?: string;
   size?: number;
   uploadedAt?: string;
@@ -562,6 +563,17 @@ function formatDuration(ms: number) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function assetLocalAvatarPath(asset: Asset) {
+  return asset.localPath?.trim() ?? "";
+}
+
+function assetLooksLikeAvatar(asset: Asset) {
+  if (asset.type === "avatar") return true;
+  if (asset.type !== "video" && asset.type !== "image") return false;
+  const text = `${asset.name} ${asset.fileName ?? ""} ${asset.tags.join(" ")}`.toLowerCase();
+  return /数字人|虚拟人|口播|绿幕|avatar|musetalk|talking|presenter|spokesperson|green[-_ ]?screen|digital[-_ ]?human/u.test(text);
+}
+
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [ips, setIps] = useState<IP[]>(seedIps);
@@ -783,6 +795,13 @@ export default function Home() {
     () => assets.filter((asset) => selectedAssets.includes(asset.id)),
     [assets, selectedAssets],
   );
+  const avatarAssetCandidates = useMemo(
+    () =>
+      assets
+        .filter((asset) => asset.status !== "disabled" && assetLocalAvatarPath(asset) && assetLooksLikeAvatar(asset))
+        .slice(0, 8),
+    [assets],
+  );
   const taxonomyTags = useMemo(() => tagCategories.flatMap((category) => category.tags), [tagCategories]);
   const taxonomyTagSet = useMemo(() => new Set(taxonomyTags), [taxonomyTags]);
   const visibleAssets = useMemo(
@@ -988,6 +1007,20 @@ export default function Home() {
         ...patch,
       },
     }));
+  };
+
+  const bindAvatarAssetToBrand = (asset: Asset) => {
+    const avatarPath = assetLocalAvatarPath(asset);
+    if (!avatarPath) {
+      setStatus(`「${asset.name}」没有本地路径，不能作为 MuseTalk 参考素材`);
+      return;
+    }
+
+    updateBrandDigitalHuman({
+      avatarPath,
+      notes: `${asset.name} / ${asset.duration} / ${asset.orientation}`,
+    });
+    setStatus(`已绑定「${asset.name}」到「${brandDraft.name}」数字人角色，保存品牌后生效`);
   };
 
   const saveTags = async (asset: Asset) => {
@@ -2489,6 +2522,58 @@ export default function Home() {
                         value={brandDigitalHuman.avatarPath}
                       />
                     </label>
+                    {avatarAssetCandidates.length > 0 && (
+                      <div className="md:col-span-2 rounded-xl border border-purple-300/15 bg-purple-300/[0.04] p-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="text-xs font-semibold text-white">素材库 avatar 候选</div>
+                          <span className="rounded-full border border-purple-300/20 bg-purple-300/10 px-2 py-0.5 text-[10px] text-purple-100">
+                            {avatarAssetCandidates.length} 个
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {avatarAssetCandidates.map((asset) => {
+                            const assetPath = assetLocalAvatarPath(asset);
+                            const bound = Boolean(assetPath && brandDigitalHuman.avatarPath === assetPath);
+                            return (
+                              <button
+                                className={`flex min-w-0 items-center gap-2 rounded-lg border p-2 text-left transition ${
+                                  bound
+                                    ? "border-purple-300/40 bg-purple-300/15"
+                                    : "border-white/8 bg-black/15 hover:bg-white/[0.05]"
+                                }`}
+                                key={asset.id}
+                                onClick={() => bindAvatarAssetToBrand(asset)}
+                                type="button"
+                              >
+                                <div
+                                  className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg"
+                                  style={{ background: `linear-gradient(135deg, ${asset.color}, #111827)` }}
+                                >
+                                  {asset.thumbnailUrl ? (
+                                    <img alt="" className="h-full w-full object-cover" src={asset.thumbnailUrl} />
+                                  ) : (
+                                    <UserRound className="h-4 w-4 text-white/70" />
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-xs font-semibold text-white">{asset.name}</div>
+                                  <div className="mt-0.5 truncate text-[10px] text-white/45">
+                                    {typeLabel[asset.type]} · {asset.duration} · {asset.orientation}
+                                  </div>
+                                </div>
+                                <span
+                                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                    bound ? "bg-purple-300/20 text-purple-50" : "bg-white/5 text-white/50"
+                                  }`}
+                                >
+                                  {bound ? "已绑定" : "绑定"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     <label className="text-xs font-medium text-white/60 md:col-span-2">
                       备注
                       <textarea
@@ -2738,6 +2823,11 @@ export default function Home() {
                             {asset.analysis?.keyframes.length ? (
                               <span className="ml-1 inline-flex items-center gap-1 rounded-md border border-cyan-300/15 bg-cyan-300/10 px-1.5 py-0.5 text-[10px] text-cyan-100">
                                 抽帧 {asset.analysis.keyframes.length}
+                              </span>
+                            ) : null}
+                            {asset.type === "avatar" && asset.localPath ? (
+                              <span className="ml-1 inline-flex items-center gap-1 rounded-md border border-purple-300/15 bg-purple-300/10 px-1.5 py-0.5 text-[10px] text-purple-100">
+                                本地路径
                               </span>
                             ) : null}
                           </div>

@@ -34,6 +34,7 @@ type Asset = {
   matchScore: number;
   url?: string;
   thumbnailUrl?: string;
+  localPath?: string;
   fileName?: string;
   size?: number;
   uploadedAt?: string;

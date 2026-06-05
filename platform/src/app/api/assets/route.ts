@@ -35,6 +35,7 @@ type Asset = {
   matchScore: number;
   url?: string;
   thumbnailUrl?: string;
+  localPath?: string;
   fileName?: string;
   size?: number;
   uploadedAt?: string;
@@ -62,7 +63,22 @@ function sanitizeFileName(fileName: string) {
   return `${base || "asset"}${ext}`;
 }
 
-function inferType(mime: string): AssetType {
+function looksLikeAvatarFile(fileName: string, mime: string) {
+  const text = `${fileName} ${mime}`.toLowerCase();
+  return /avatar|musetalk|talking|presenter|spokesperson|green[-_ ]?screen|digital[-_ ]?human|数字人|口播|绿幕|虚拟人/u.test(text);
+}
+
+function isVisualMedia(fileName: string, mime: string) {
+  const ext = path.extname(fileName).toLowerCase();
+  return mime.startsWith("video/")
+    || mime.startsWith("image/")
+    || [".mp4", ".mov", ".webm", ".mkv", ".avi", ".jpg", ".jpeg", ".png", ".webp"].includes(ext);
+}
+
+function inferType(fileName: string, mime: string): AssetType {
+  if (isVisualMedia(fileName, mime) && looksLikeAvatarFile(fileName, mime)) {
+    return "avatar";
+  }
   if (mime.startsWith("image/")) return "image";
   if (mime.startsWith("audio/")) return "audio";
   if (mime.startsWith("video/")) return "video";
@@ -93,6 +109,10 @@ function assetColor(type: AssetType) {
   if (type === "audio") return "#64748b";
   if (type === "avatar") return "#a855f7";
   return "#f97316";
+}
+
+function isImageFilePath(filePath: string) {
+  return [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(path.extname(filePath).toLowerCase());
 }
 
 function getBundledFfmpegPath() {
@@ -186,8 +206,8 @@ async function probeMedia(filePath: string): Promise<MediaProbe> {
 }
 
 async function createThumbnail(filePath: string, id: string, type: AssetType, url: string) {
-  if (type === "image") return url;
-  if (type !== "video") return undefined;
+  if (type === "image" || (type === "avatar" && isImageFilePath(filePath))) return url;
+  if (type !== "video" && type !== "avatar") return undefined;
 
   await fs.mkdir(thumbnailsDir, { recursive: true });
   const thumbnailName = `${id}.jpg`;
@@ -214,8 +234,8 @@ async function createThumbnail(filePath: string, id: string, type: AssetType, ur
 }
 
 async function createKeyframes(filePath: string, id: string, type: AssetType, url: string) {
-  if (type === "image") return [url];
-  if (type !== "video") return [];
+  if (type === "image" || (type === "avatar" && isImageFilePath(filePath))) return [url];
+  if (type !== "video" && type !== "avatar") return [];
 
   await fs.mkdir(keyframesDir, { recursive: true });
   const keyframes: string[] = [];
@@ -290,7 +310,7 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(filePath, buffer);
 
-    const type = inferType(file.type);
+    const type = inferType(file.name, file.type);
     const url = `/uploads/${storedName}`;
     const probe = await probeMedia(filePath);
     const thumbnailUrl = await createThumbnail(filePath, id, type, url);
@@ -309,6 +329,7 @@ export async function POST(request: NextRequest) {
       matchScore: 72,
       url,
       thumbnailUrl,
+      localPath: filePath,
       fileName: file.name,
       size: file.size,
       uploadedAt: new Date().toISOString(),
