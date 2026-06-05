@@ -124,3 +124,18 @@ Cutix 会按以下环境变量轮询：
 4. 输出绿幕 MP4。
 5. 可选：用 FFmpeg 或 RMBG 做透明通道 WebM。
 6. 返回同步 `videoUrl/alphaVideoUrl`，或返回 `statusUrl` 让 Cutix 轮询。
+
+当前仓库已提供一个无额外依赖的 Node 版本地服务脚本，可作为第一期 MuseTalk 本地化接入基线：
+
+```powershell
+cd platform
+npm run digital-human:musetalk-service
+```
+
+默认生成接口：
+
+```text
+http://127.0.0.1:8788/generate
+```
+
+部署细节见：`docs/musetalk-local-service.md`。

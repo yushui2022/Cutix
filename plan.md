@@ -40,11 +40,12 @@
 32. 已完成 HeyGen 云端参考接入 MVP：系统可调用 HeyGen WebM API 生成效果参考片段，但它不解锁正式生产；老板要求本地化部署后，云 API 只作为临时效果评估，不进入交付主链路。
 33. 已完成一键式生产入口 MVP：主流程按钮会自动串联文案/分镜、选材、TTS、数字人、成片任务提交，并支持 `count` 批量创建渲染任务。
 34. 已明确本地数字人主路线：第一期以 MuseTalk 本地服务为主，Duix.Heygem 作为平台型备选，LatentSync/InfiniteTalk/LongCat 作为二期高质量增强，不再把云数字人平台作为正式交付依赖。
+35. 已新增 MuseTalk 本地 HTTP 服务脚本：`npm run digital-human:musetalk-service` 会启动 `http://127.0.0.1:8788/generate`，接收 Cutix 的数字人 HTTP 请求并调用本机 MuseTalk 输出口播片段。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 本地化数字人服务落地：把 MuseTalk 从 CLI 适配升级为本地 FastAPI/HTTP 服务，稳定接收 `audioPath/avatarPath/sceneId`，输出 `videoUrl/alphaVideoUrl`。
-2. 完成本地数字人部署包：整理 MuseTalk、CosyVoice、FFmpeg、显卡驱动、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
+1. 完成本地数字人部署包：整理 MuseTalk、CosyVoice、FFmpeg、显卡驱动、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
+2. 验证 MuseTalk 本地 HTTP 服务：准备绿幕 avatar 样例，跑通 `TTS -> musetalk-service -> /api/digital-human -> Remotion` 的真实本地数字人成片。
 3. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
 4. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
 5. 增加 IP/品牌、标签体系、模板包的后台管理页面。
