@@ -59,6 +59,11 @@ function getFfmpegCommand() {
   return path.join(platformRoot, "node_modules", "ffmpeg-static", exe);
 }
 
+function resolveMuseTalkPath(museTalkRoot, configuredValue, fallbackValue) {
+  const value = configuredValue || fallbackValue;
+  return path.isAbsolute(value) ? value : path.join(museTalkRoot, value);
+}
+
 function runCommand(command, args, cwd, timeoutMs = 30 * 60 * 1000) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -260,23 +265,73 @@ async function generateMuseTalkClip(payload) {
 
 async function healthPayload() {
   const museTalkRoot = path.resolve(process.env.MUSETALK_ROOT || defaultMuseTalkRoot);
-  const checks = [];
-  for (const [key, target] of [
-    ["platformRoot", platformRoot],
-    ["musetalkRoot", museTalkRoot],
-    ["outputDir", outputDir],
-  ]) {
+  const python = process.env.MUSETALK_PYTHON || "python";
+  const version = process.env.MUSETALK_VERSION || "v15";
+  const unetModelPath = resolveMuseTalkPath(
+    museTalkRoot,
+    process.env.MUSETALK_UNET_MODEL_PATH || "models/musetalkV15/unet.pth",
+  );
+  const unetConfig = resolveMuseTalkPath(
+    museTalkRoot,
+    process.env.MUSETALK_UNET_CONFIG || "models/musetalkV15/musetalk.json",
+  );
+  const ffmpeg = getFfmpegCommand();
+
+  async function readable(key, label, target) {
     try {
       await fs.access(target);
-      checks.push({ key, status: "pass", target });
+      return { key, label, status: "pass", target, message: "可读取" };
     } catch {
-      checks.push({ key, status: "fail", target });
+      return { key, label, status: "fail", target, message: "不可读取或不存在" };
     }
   }
+
+  async function writableDirectory(key, label, target) {
+    const probePath = path.join(target, `.cutix-health-${Date.now()}.tmp`);
+    try {
+      await fs.mkdir(target, { recursive: true });
+      await fs.writeFile(probePath, "ok", "utf8");
+      await fs.unlink(probePath);
+      return { key, label, status: "pass", target, message: "可写" };
+    } catch {
+      return { key, label, status: "fail", target, message: "不可写" };
+    }
+  }
+
+  async function runnable(key, label, command, args, cwd) {
+    try {
+      await runCommand(command, args, cwd, 10 * 1000);
+      return { key, label, status: "pass", target: command, message: "可执行" };
+    } catch (error) {
+      return {
+        key,
+        label,
+        status: "fail",
+        target: command,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  const checks = [
+    await readable("platformRoot", "Cutix platform", platformRoot),
+    await readable("musetalkRoot", "MuseTalk 根目录", museTalkRoot),
+    await readable("unetModel", "MuseTalk UNet 权重", unetModelPath),
+    await readable("unetConfig", "MuseTalk UNet 配置", unetConfig),
+    await readable("ffmpeg", "FFmpeg", ffmpeg),
+    await writableDirectory("outputDir", "输出目录", outputDir),
+    await writableDirectory("serviceDataDir", "服务任务目录", serviceDataDir),
+    await runnable("python", "Python 环境", python, ["--version"], museTalkRoot),
+  ];
+
   return {
     service: "cutix-musetalk-http-service",
     ok: checks.every((check) => check.status === "pass"),
     endpoint: `http://${host}:${port}/generate`,
+    generateEndpoint: `http://${host}:${port}/generate`,
+    healthEndpoint: `http://${host}:${port}/health`,
+    museTalkRoot,
+    version,
     checks,
   };
 }

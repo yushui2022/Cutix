@@ -24,6 +24,25 @@ http://127.0.0.1:8788/generate
 http://127.0.0.1:8788/health
 ```
 
+健康检查会返回服务是否可生产以及每个本地依赖的状态：
+
+```json
+{
+  "service": "cutix-musetalk-http-service",
+  "ok": false,
+  "generateEndpoint": "http://127.0.0.1:8788/generate",
+  "healthEndpoint": "http://127.0.0.1:8788/health",
+  "museTalkRoot": "C:\\Users\\xiaoy\\Desktop\\cutix\\external\\musetalk",
+  "version": "v15",
+  "checks": [
+    {"key": "musetalkRoot", "label": "MuseTalk 根目录", "status": "pass", "message": "可读取"},
+    {"key": "unetModel", "label": "MuseTalk UNet 权重", "status": "fail", "message": "不可读取或不存在"}
+  ]
+}
+```
+
+Cutix 控制台的「数字人接入检查」会优先读取这个 `/health`，并把 Python、FFmpeg、MuseTalk 根目录、模型权重、配置文件、输出目录可写性逐项展开。如果服务没有实现 `/health`，系统才会退回到通用 HTTP endpoint 探测。
+
 然后在 Cutix Web 控制台的「数字人接入」里配置：
 
 | 字段 | 值 |

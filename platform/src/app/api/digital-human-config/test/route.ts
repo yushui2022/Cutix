@@ -38,6 +38,23 @@ type ReadinessCheck = {
   message: string;
 };
 
+type ServiceHealthCheck = {
+  key?: unknown;
+  label?: unknown;
+  status?: unknown;
+  message?: unknown;
+  target?: unknown;
+};
+
+type ServiceHealthPayload = {
+  service?: unknown;
+  ok?: unknown;
+  endpoint?: unknown;
+  generateEndpoint?: unknown;
+  healthEndpoint?: unknown;
+  checks?: unknown;
+};
+
 const dataDir = path.join(process.cwd(), "data");
 const configFile = path.join(dataDir, "digital-human-config.json");
 
@@ -89,7 +106,133 @@ function check(key: string, label: string, status: ReadinessCheck["status"], mes
   return { key, label, status, message };
 }
 
-async function testHttpEndpoint(config: StoredDigitalHumanConfig): Promise<ReadinessCheck> {
+function normalizeCheckStatus(value: unknown): ReadinessCheck["status"] {
+  if (value === "pass" || value === "warn" || value === "fail") return value;
+  if (value === true || value === "ok" || value === "ready") return "pass";
+  if (value === false || value === "error") return "fail";
+  return "warn";
+}
+
+function asText(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function unique(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function healthUrlCandidates(endpoint: string) {
+  try {
+    const url = new URL(endpoint);
+    const pathWithoutSlash = url.pathname.replace(/\/+$/, "");
+    const candidates: string[] = [];
+
+    if (pathWithoutSlash.endsWith("/generate")) {
+      const healthUrl = new URL(url);
+      healthUrl.pathname = `${pathWithoutSlash.slice(0, -"/generate".length) || ""}/health`;
+      healthUrl.search = "";
+      candidates.push(healthUrl.toString());
+    }
+
+    if (pathWithoutSlash && pathWithoutSlash !== "/") {
+      const scopedHealthUrl = new URL(url);
+      const parentPath = pathWithoutSlash.split("/").slice(0, -1).join("/");
+      scopedHealthUrl.pathname = `${parentPath || ""}/health`;
+      scopedHealthUrl.search = "";
+      candidates.push(scopedHealthUrl.toString());
+    }
+
+    const rootHealthUrl = new URL(url);
+    rootHealthUrl.pathname = "/health";
+    rootHealthUrl.search = "";
+    candidates.push(rootHealthUrl.toString());
+
+    return unique(candidates);
+  } catch {
+    return [];
+  }
+}
+
+async function readJson(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text.trim()) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function flattenHealthPayload(payload: ServiceHealthPayload, healthUrl: string): ReadinessCheck[] {
+  const serviceName = asText(payload.service) || "本地数字人服务";
+  const ok = payload.ok === true;
+  const checks: ReadinessCheck[] = [
+    check(
+      "http-health",
+      "服务健康检查",
+      ok ? "pass" : "fail",
+      ok ? `${serviceName} 已就绪：${healthUrl}` : `${serviceName} 未就绪：${healthUrl}`,
+    ),
+  ];
+
+  if (Array.isArray(payload.checks)) {
+    payload.checks.forEach((item, index) => {
+      const serviceCheck = item as ServiceHealthCheck;
+      const key = asText(serviceCheck.key) || `service-${index + 1}`;
+      const label = asText(serviceCheck.label) || key;
+      const target = asText(serviceCheck.target);
+      const message = asText(serviceCheck.message) || (target ? target : "服务未返回详细信息");
+      checks.push(check(`service-${key}`, label, normalizeCheckStatus(serviceCheck.status), target ? `${message}：${target}` : message));
+    });
+  }
+
+  return checks;
+}
+
+async function tryServiceHealth(config: StoredDigitalHumanConfig): Promise<ReadinessCheck[] | null> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+
+  for (const healthUrl of healthUrlCandidates(config.endpoint)) {
+    try {
+      const response = await fetch(healthUrl, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (response.status === 404 || response.status === 405) continue;
+      if (response.status === 401 || response.status === 403) {
+        return [check("http-health", "服务健康检查", "fail", `健康检查鉴权失败，HTTP ${response.status}`)];
+      }
+      if (response.status >= 500) {
+        return [check("http-health", "服务健康检查", "fail", `健康检查返回 HTTP ${response.status}`)];
+      }
+      if (!response.ok) continue;
+
+      const payload = await readJson(response);
+      if (typeof payload === "object" && payload !== null) {
+        const healthPayload = payload as ServiceHealthPayload;
+        if (Array.isArray(healthPayload.checks) || "ok" in healthPayload) {
+          return flattenHealthPayload(healthPayload, healthUrl);
+        }
+      }
+
+      return [check("http-health", "服务健康检查", "warn", `健康检查有响应，但未返回标准 JSON：${healthUrl}`)];
+    } catch {
+      // Try the next health URL candidate before falling back to the endpoint probe.
+    }
+  }
+
+  return null;
+}
+
+async function testHttpEndpoint(config: StoredDigitalHumanConfig): Promise<ReadinessCheck[]> {
+  const healthChecks = await tryServiceHealth(config);
+  if (healthChecks) return healthChecks;
+
   const headers: Record<string, string> = { Accept: "application/json" };
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
 
@@ -100,14 +243,23 @@ async function testHttpEndpoint(config: StoredDigitalHumanConfig): Promise<Readi
       signal: AbortSignal.timeout(5000),
     });
 
+    if (response.status === 404) {
+      return [check("http-network", "服务响应", "fail", "服务地址返回 HTTP 404，请确认 endpoint 是否应指向 /generate")];
+    }
+    if (response.status === 401 || response.status === 403) {
+      return [check("http-network", "服务响应", "fail", `服务鉴权失败，HTTP ${response.status}`)];
+    }
     if (response.status >= 500) {
-      return check("http-network", "服务响应", "fail", `服务返回 HTTP ${response.status}`);
+      return [check("http-network", "服务响应", "fail", `服务返回 HTTP ${response.status}`)];
+    }
+    if (response.status === 405) {
+      return [check("http-network", "服务响应", "warn", "服务存活但不支持 OPTIONS；建议实现 /health 以确认生产依赖")];
     }
 
-    return check("http-network", "服务响应", "pass", `服务有响应，HTTP ${response.status}`);
+    return [check("http-network", "服务响应", "pass", `服务有响应，HTTP ${response.status}`)];
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "未知错误";
-    return check("http-network", "服务响应", "fail", `无法连接数字人服务：${message}`);
+    return [check("http-network", "服务响应", "fail", `无法连接数字人服务：${message}`)];
   }
 }
 
@@ -179,7 +331,7 @@ async function buildChecks(config: StoredDigitalHumanConfig, request: TestReques
       checks.push(check("http-endpoint", "服务地址", "fail", "未填写数字人 HTTP Endpoint"));
     } else {
       checks.push(check("http-endpoint", "服务地址", "pass", "已填写数字人 HTTP Endpoint"));
-      if (request.network !== false) checks.push(await testHttpEndpoint(config));
+      if (request.network !== false) checks.push(...(await testHttpEndpoint(config)));
     }
     if (!profile?.voiceId) checks.push(check("voice", "声音标识", "warn", "未填写声音标识，服务需自行选择默认声音"));
     if (!avatarPath) checks.push(check("avatar", "角色素材", "warn", "未填写角色参考素材路径，服务需自行选择默认角色"));
