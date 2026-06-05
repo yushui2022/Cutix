@@ -39,7 +39,7 @@
 31. 已完成 IP 级数字人角色档案 MVP：品牌配置可维护数字人角色名称、声音标识、参考素材路径和备注；生成数字人时会把当前 IP 的角色信息传给 HTTP API/MuseTalk。
 32. 已完成 HeyGen 云端参考接入 MVP：系统可调用 HeyGen WebM API 生成效果参考片段，但它不解锁正式生产；老板要求本地化部署后，云 API 只作为临时效果评估，不进入交付主链路。
 33. 已完成一键式生产入口 MVP：主流程按钮会自动串联文案/分镜、选材、TTS、数字人、成片任务提交，并支持 `count` 批量创建渲染任务。
-34. 已明确本地数字人主路线：第一期以 MuseTalk 本地服务为主，Duix.Heygem 作为平台型备选，LatentSync/InfiniteTalk/LongCat 作为二期高质量增强，不再把云数字人平台作为正式交付依赖。
+34. 已明确本地数字人主路线：第一期以 MuseTalk + CosyVoice 2 本地服务为主，Duix-Avatar 作为平台型备选，LatentSync 作为高质量口型备选；HunyuanVideo-Avatar、OmniAvatar、EchoMimicV2/V3 暂列研究项，不进入近期交付承诺，不再把云数字人平台作为正式交付依赖。
 35. 已新增 MuseTalk 本地 HTTP 服务脚本：`npm run digital-human:musetalk-service` 会启动 `http://127.0.0.1:8788/generate`，接收 Cutix 的数字人 HTTP 请求并调用本机 MuseTalk 输出口播片段。
 
 当前仍是 MVP 骨架，下一步应优先推进：
@@ -156,15 +156,19 @@ C:\Users\xiaoy\Desktop\cutix\
 
 ### 4.0 当前选型结论
 
-老板要求数字人本地化部署后，正式交付链路只接受本地数字人服务。云平台不再作为生产依赖：
+老板要求数字人本地化部署后，正式交付链路只接受本地数字人服务。云平台不再作为生产依赖，Cutix 只通过统一 `/api/digital-human` Provider 契约对接本地数字人服务：
 
-| 层级 | 项目 | 当前定位 |
-|---|---|---|
-| 第一期主线 | MuseTalk + CosyVoice 2 | 本地 TTS + 本地口型驱动，先跑通可交付链路 |
-| 平台型备选 | Duix.Heygem | 如果客户更想要完整本地数字人平台，并行评估 |
-| 二期增强 | LatentSync / InfiniteTalk / LongCat-Video-Avatar | 做更高质量口型同步或长视频数字人 |
-| 辅助动效 | LivePortrait / EchoMimicV2 | 做头动、表情、半身动效增强，不做一期主链路 |
-| 云端参考 | HeyGen | 只用于效果参考，不解锁正式生产，不进入客户交付链路 |
+详细选型、验证门槛和二期候选项目记录在 `docs/local-digital-human-selection.md`。
+
+| 优先级 | 项目 | 当前定位 | 选择理由 | 风险/边界 |
+|---|---|---|---|---|
+| 第一主线 | MuseTalk + CosyVoice 2/3 | 本地 TTS + 本地口型驱动，先跑通可交付链路 | 已经适配进 Cutix；形态简单，输入音频 + 角色参考视频，输出口播片段；适合分段生成、失败重试、Remotion 合成 | 主要是口型/半身表达，不是完整“真人拍摄级”生成；绿幕/alpha 效果依赖角色素材质量 |
+| 第一备选 | Duix-Avatar | 平台型本地数字人方案 | 更接近“本地数字人平台”，可并行验证 API、Docker、角色管理、声音能力；客户若强调完整数字人平台，它比单模型更像交付件 | 体量更重，授权和商业边界必须复核；要验证是否能稳定输出 Cutix 需要的透明/可抠图口播片段 |
+| 质量备选 | LatentSync | 高清口型同步 Provider | 适合替换或补强 MuseTalk 的唇形质量；保留在同一个 HTTP Provider 契约后面 | 推理成本、批量速度和 Windows/服务器部署复杂度要实测，暂不承诺一期主链路 |
+| 二期研究 | HunyuanVideo-Avatar / OmniAvatar | 生成式高质量数字人视频 | 画面表现更强，适合后续做全身、半身、情绪、肢体增强 | 通常更吃 GPU、吞吐不可控、商业授权更复杂；不适合现在作为批量视频工厂主线 |
+| 辅助增强 | EchoMimicV2/V3 / LivePortrait | 头动、表情、姿态增强 | 可以提升头像自然度，或给静态角色做表情动效 | 不负责完整生产链路，只能作为增强模块 |
+| 不推荐主线 | Wav2Lip / SadTalker | 老牌兜底或实验工具 | 可作为故障排查、低配机器兜底参考 | 质量和现代商业交付预期有差距，不应作为客户主方案 |
+| 云端参考 | HeyGen 等 | 只看效果，不进交付 | 可用于老板/客户快速对齐“想要的效果” | 不满足本地化要求，不能解锁正式生产 |
 
 一期原则：
 
@@ -172,17 +176,28 @@ C:\Users\xiaoy\Desktop\cutix\
 2. 数字人失败不能自动 fallback 成假人占位。
 3. 没有真实数字人片段时，成片只能走 `full_broll` 或阻止正式提交。
 4. Provider 要可替换，不能把 Cutix 绑定死在单一模型或云服务上。
+5. 第一阶段优先验证“稳定批量产出”，不要把重型生成式数字人作为交付承诺。
 
-### 4.1 为什么第一期选 MuseTalk + CosyVoice 2
+### 4.1 为什么第一期选 MuseTalk + CosyVoice 2/3
 
-| 维度 | MuseTalk | CosyVoice 2 |
+| 维度 | MuseTalk | CosyVoice 2/3 |
 |---|---|---|
-| 来源 | 腾讯音乐娱乐 | 阿里通义实验室 |
-| 开源协议 | MIT（仍需复核依赖模型和第三方权重许可） | Apache 2.0 |
-| 中文支持 | 良好 | 开源第一梯队 |
-| 核心能力 | 音频驱动唇形同步 | 零样本声音克隆（3-10s 样本） |
-| 部署 | GPU 12GB+ | GPU 8GB+ |
-| 速度 | RTX 4090 ≈ 0.3s/frame | 实时 |
+| 来源 | 腾讯音乐娱乐 | 阿里通义/ModelScope 生态 |
+| 开源协议 | MIT（仍需复核依赖模型和第三方权重许可） | Apache 2.0（仍需复核具体模型权重条款） |
+| 中文支持 | 良好，适合中文口播 | 中文 TTS 和声音克隆能力强 |
+| 核心能力 | 音频驱动唇形同步，生成数字人口播片段 | 文案转语音，支持按 IP 维护声音档案 |
+| 部署 | 单独封装成本地 HTTP 服务，接 Cutix `/api/digital-human` | 通过 FastAPI 或兼容服务接 Cutix `/api/tts` |
+| 与 Cutix 的关系 | 只负责每个 scene 的数字人片段 | 只负责每个 scene 的音频与字幕时间轴 |
+
+第一期选择它们不是因为它们画质一定最强，而是因为它们最适合当前交付目标：本地部署、可分段、可排队、可失败重试、可被 Remotion 二次合成。客户要的是批量商业 IP 视频工厂，主链路稳定性比单条 demo 的惊艳程度更重要。
+
+### 4.1.1 本地数字人验证顺序
+
+1. 先拿一个绿幕半身 avatar 跑通 `CosyVoice -> MuseTalk -> alpha WebM -> Remotion`。
+2. 同一段文案生成 3 次，检查口型漂移、眨眼/头部稳定性、音画同步、背景抠除边缘。
+3. 同一 IP 连续生成 20 个 scene，检查 GPU 显存泄漏、队列阻塞、失败重试和磁盘增长。
+4. 并行部署 Duix-Avatar，验证它是否能输出 Cutix 可消费的 MP4/WebM，作为客户偏平台化时的备选。
+5. 如果 MuseTalk 质量不够，再把 LatentSync 接成第二个 Provider，而不是重写 Cutix 主流程。
 
 ### 4.2 数字人生产流水线
 
