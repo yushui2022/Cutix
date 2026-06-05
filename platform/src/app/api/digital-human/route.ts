@@ -1000,7 +1000,7 @@ export async function POST(request: NextRequest) {
             ? "heygen-api"
             : "ffmpeg-placeholder",
       alpha: generated.length > 0 && generated.every((clip) => clip.alpha),
-      productionReady: generated.every((clip) => !clip.placeholder),
+      productionReady: generated.every((clip) => !clip.placeholder && clip.source !== "heygen-api"),
       chromaKey: alphaEnabled ? chromaKey : null,
       clips: generated,
       errors,

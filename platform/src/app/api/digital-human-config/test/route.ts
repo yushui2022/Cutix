@@ -170,6 +170,7 @@ async function buildChecks(config: StoredDigitalHumanConfig, request: TestReques
         ? check("api-key", "API Key", "pass", "已保存 HeyGen API Key")
         : check("api-key", "API Key", "fail", "未填写 HeyGen API Key"),
     );
+    checks.push(check("delivery-policy", "交付策略", "warn", "HeyGen 调用云端服务，只用于效果参考；本地化交付需使用 MuseTalk 或本地 HTTP 服务"));
     if (request.network !== false) checks.push(await testHeyGenEndpoint(config));
   }
 
@@ -209,7 +210,10 @@ export async function POST(request: NextRequest) {
   const data = typeof body === "object" && body !== null ? body as TestRequest : {};
   const config = await readConfig();
   const checks = await buildChecks(config, data);
-  const productionReady = config.provider !== "placeholder" && checks.every((item) => item.status !== "fail");
+  const productionReady =
+    config.provider !== "placeholder"
+    && config.provider !== "heygen-api"
+    && checks.every((item) => item.status !== "fail");
 
   return Response.json(
     {

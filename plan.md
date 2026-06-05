@@ -2,7 +2,7 @@
 
 ## 0. 当前推进状态
 
-更新时间：2026-06-02
+更新时间：2026-06-05
 
 当前仓库已经不再只是概念验证，`platform/` 内有一个可运行的 Next.js Web 控制台：
 
@@ -37,13 +37,17 @@
 29. 已完成数字人占位隔离 MVP：`/api/digital-human` 不再静默把生产失败 fallback 成占位；占位片段只能显式测试，前端禁止把测试占位数字人提交到最终成片任务。
 30. 已完成数字人 HTTP API 契约 MVP：HTTP provider 支持同步 `videoUrl/alphaVideoUrl` 返回，也支持 `statusUrl/pollUrl` 异步 job 轮询；`docs/digital-human-http-api.md` 已写清对接协议。
 31. 已完成 IP 级数字人角色档案 MVP：品牌配置可维护数字人角色名称、声音标识、参考素材路径和备注；生成数字人时会把当前 IP 的角色信息传给 HTTP API/MuseTalk。
+32. 已完成 HeyGen 云端参考接入 MVP：系统可调用 HeyGen WebM API 生成效果参考片段，但它不解锁正式生产；老板要求本地化部署后，云 API 只作为临时效果评估，不进入交付主链路。
+33. 已完成一键式生产入口 MVP：主流程按钮会自动串联文案/分镜、选材、TTS、数字人、成片任务提交，并支持 `count` 批量创建渲染任务。
+34. 已明确本地数字人主路线：第一期以 MuseTalk 本地服务为主，Duix.Heygem 作为平台型备选，LatentSync/InfiniteTalk/LongCat 作为二期高质量增强，不再把云数字人平台作为正式交付依赖。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
-1. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
-2. 继续完善 `videoPlan`：加入版本迁移、人工锁定、任务失败后复用同一 plan 和前端差异提示。
-3. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
-4. 增加 IP/品牌、标签体系、模板包的后台管理页面。
+1. 本地化数字人服务落地：把 MuseTalk 从 CLI 适配升级为本地 FastAPI/HTTP 服务，稳定接收 `audioPath/avatarPath/sceneId`，输出 `videoUrl/alphaVideoUrl`。
+2. 完成本地数字人部署包：整理 MuseTalk、CosyVoice、FFmpeg、显卡驱动、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
+3. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
+4. 把 `/api/assets` 的规则打标升级为视频抽帧 + 本地视觉模型打标。
+5. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
 ## 1. 产品形态
 
@@ -147,14 +151,33 @@ C:\Users\xiaoy\Desktop\cutix\
 
 ---
 
-## 4. 数字人方案：MuseTalk + CosyVoice 2
+## 4. 数字人方案：本地化部署优先
 
-### 4.1 为什么选这个组合
+### 4.0 当前选型结论
+
+老板要求数字人本地化部署后，正式交付链路只接受本地数字人服务。云平台不再作为生产依赖：
+
+| 层级 | 项目 | 当前定位 |
+|---|---|---|
+| 第一期主线 | MuseTalk + CosyVoice 2 | 本地 TTS + 本地口型驱动，先跑通可交付链路 |
+| 平台型备选 | Duix.Heygem | 如果客户更想要完整本地数字人平台，并行评估 |
+| 二期增强 | LatentSync / InfiniteTalk / LongCat-Video-Avatar | 做更高质量口型同步或长视频数字人 |
+| 辅助动效 | LivePortrait / EchoMimicV2 | 做头动、表情、半身动效增强，不做一期主链路 |
+| 云端参考 | HeyGen | 只用于效果参考，不解锁正式生产，不进入客户交付链路 |
+
+一期原则：
+
+1. 数字人片段必须在客户本地服务器生成。
+2. 数字人失败不能自动 fallback 成假人占位。
+3. 没有真实数字人片段时，成片只能走 `full_broll` 或阻止正式提交。
+4. Provider 要可替换，不能把 Cutix 绑定死在单一模型或云服务上。
+
+### 4.1 为什么第一期选 MuseTalk + CosyVoice 2
 
 | 维度 | MuseTalk | CosyVoice 2 |
 |---|---|---|
 | 来源 | 腾讯音乐娱乐 | 阿里通义实验室 |
-| 开源协议 | 待确认 | Apache 2.0 |
+| 开源协议 | MIT（仍需复核依赖模型和第三方权重许可） | Apache 2.0 |
 | 中文支持 | 良好 | 开源第一梯队 |
 | 核心能力 | 音频驱动唇形同步 | 零样本声音克隆（3-10s 样本） |
 | 部署 | GPU 12GB+ | GPU 8GB+ |

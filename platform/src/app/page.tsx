@@ -495,8 +495,8 @@ const scriptSourceLabel: Record<string, string> = {
 const digitalHumanProviderLabel: Record<DigitalHumanProvider, string> = {
   placeholder: "未接生产数字人",
   "musetalk-cli": "MuseTalk 本地",
-  "http-api": "HTTP 数字人 API",
-  "heygen-api": "HeyGen API",
+  "http-api": "本地 HTTP 数字人服务",
+  "heygen-api": "HeyGen 云端参考",
 };
 
 const digitalHumanReadinessStatusLabel: Record<DigitalHumanReadinessCheck["status"], string> = {
@@ -514,11 +514,11 @@ const digitalHumanReadinessTone: Record<DigitalHumanReadinessCheck["status"], st
 const digitalHumanSetupSteps = [
   {
     title: "准备数字人服务",
-    detail: "可先用 HeyGen API 看效果，后续再切回 MuseTalk 或自建 HTTP 服务。",
+    detail: "交付主链路使用 MuseTalk 或本地 HTTP 服务；HeyGen 只保留为云端效果参考。",
   },
   {
     title: "返回口播视频",
-    detail: "服务至少返回 videoUrl 或 alphaVideoUrl；排队任务可返回 statusUrl 让 Cutix 自动轮询。",
+    detail: "本地服务至少返回 videoUrl 或 alphaVideoUrl；排队任务可返回 statusUrl 让 Cutix 自动轮询。",
   },
   {
     title: "绑定 IP 角色",
@@ -537,6 +537,10 @@ function digitalHumanProfileForBrand(brand: IP): BrandDigitalHumanProfile {
     voiceId: brand.digitalHuman?.voiceId || `${brand.id}-default`,
     notes: brand.digitalHuman?.notes || "",
   };
+}
+
+function digitalHumanProviderDisplay(provider: string) {
+  return digitalHumanProviderLabel[provider as DigitalHumanProvider] ?? provider;
 }
 
 const sceneRoleLabel: Record<string, string> = {
@@ -1365,7 +1369,7 @@ export default function Home() {
       return;
     }
 
-    if (digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForProduction) {
+    if (digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForGeneration) {
       setStatus("数字人服务信息不完整，请到系统设置补全后再生成");
       return;
     }
@@ -1398,7 +1402,9 @@ export default function Home() {
       const placeholderCount = payload.clips.filter((clip) => clip.placeholder).length;
       setDigitalHumanPreview(payload);
       setStatus(
-        placeholderCount > 0 || payload.productionReady === false
+        payload.provider === "heygen-api"
+          ? `HeyGen 云端参考片段完成：${payload.clips.length} 段，透明通道 ${alphaCount} 段；正式生产仍需本地数字人服务`
+          : placeholderCount > 0 || payload.productionReady === false
           ? `已生成 ${placeholderCount} 段测试占位数字人；接入生产数字人后才能提交成片`
           : `数字人片段完成：${payload.clips.length} 段，透明通道 ${alphaCount} 段`,
       );
@@ -1418,6 +1424,11 @@ export default function Home() {
 
     if (digitalHumanPreview.productionReady === false || digitalHumanPreview.clips.some((clip) => clip.placeholder)) {
       setStatus("当前数字人仍是测试占位片段，不能提交成片；请在系统设置接入 HTTP API 或 MuseTalk 后重新生成数字人");
+      return;
+    }
+
+    if (digitalHumanPreview.provider === "heygen-api") {
+      setStatus("HeyGen 是云端效果参考，不能提交本地化交付成片；请接入 MuseTalk 或本地 HTTP 数字人服务");
       return;
     }
 
@@ -1727,20 +1738,21 @@ export default function Home() {
   const keyframedAssetCount = assets.filter((asset) => (asset.analysis?.keyframes.length ?? 0) > 0).length;
   const selectedDigitalHumanProfile = digitalHumanProfileForBrand(selectedIP);
   const brandDigitalHuman = digitalHumanProfileForBrand(brandDraft);
+  const cloudReferenceDigitalHuman = digitalHumanConfig.provider === "heygen-api";
   const digitalHumanConnectionStatus =
-    digitalHumanConfig.provider === "heygen-api"
+    cloudReferenceDigitalHuman
       ? digitalHumanConfig.apiKeySet
-        ? "HeyGen Key 已配置"
-        : "待填写 HeyGen Key"
+        ? "云端参考已配置"
+        : "待填写云端参考 Key"
       : digitalHumanConfig.provider === "http-api"
       ? digitalHumanConfig.endpoint
-        ? "生产 API 已配置"
-        : "待填写生产 API"
+        ? "本地服务已配置"
+        : "待填写本地服务"
       : digitalHumanConfig.provider === "musetalk-cli"
         ? "本地 MuseTalk"
         : "未接生产数字人";
-  const digitalHumanReadyForProduction =
-    digitalHumanConfig.provider === "heygen-api"
+  const digitalHumanReadyForGeneration =
+    cloudReferenceDigitalHuman
       ? Boolean(
         digitalHumanConfig.apiKeySet
         && (selectedDigitalHumanProfile.avatarPath || digitalHumanConfig.avatarPath),
@@ -1750,6 +1762,10 @@ export default function Home() {
       : digitalHumanConfig.provider === "musetalk-cli"
         ? Boolean(selectedDigitalHumanProfile.avatarPath || digitalHumanConfig.avatarPath)
         : false;
+  const digitalHumanReadyForProduction =
+    digitalHumanReadyForGeneration
+    && digitalHumanConfig.provider !== "placeholder"
+    && !cloudReferenceDigitalHuman;
   const productionDigitalHumanReady = digitalHumanConfig.provider !== "placeholder" && digitalHumanReadyForProduction;
   const digitalHumanConfigHasUnsavedChanges =
     digitalHumanDraft.provider !== digitalHumanConfig.provider
@@ -1958,8 +1974,9 @@ export default function Home() {
                   ))}
                 </div>
                 <div className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/10 p-3 text-[11px] leading-5 text-cyan-100/85">
-                  HeyGen 模式会把本地 TTS 上传为音频资产并生成透明 WebM；HTTP 模式需要接收 <span className="font-semibold text-cyan-50">text / audioPath / roleName / voiceId / avatarPath</span>，
+                  本地 HTTP 模式需要接收 <span className="font-semibold text-cyan-50">text / audioPath / roleName / voiceId / avatarPath</span>，
                   返回 <span className="font-semibold text-cyan-50">videoUrl</span>、<span className="font-semibold text-cyan-50">alphaVideoUrl</span> 或 <span className="font-semibold text-cyan-50">statusUrl</span>。
+                  HeyGen 模式会调用云端，只用于效果参考，不解锁正式生产。
                 </div>
               </div>
 
@@ -1975,9 +1992,9 @@ export default function Home() {
                       })}
                     value={digitalHumanDraft.provider}
                   >
-                    <option className="bg-[#0a0b14]" value="heygen-api">HeyGen API</option>
-                    <option className="bg-[#0a0b14]" value="http-api">HTTP 数字人 API</option>
                     <option className="bg-[#0a0b14]" value="musetalk-cli">MuseTalk 本地 CLI</option>
+                    <option className="bg-[#0a0b14]" value="http-api">本地 HTTP 数字人服务</option>
+                    <option className="bg-[#0a0b14]" value="heygen-api">HeyGen 云端参考</option>
                     <option className="bg-[#0a0b14]" value="placeholder">测试占位（不可交付）</option>
                   </select>
                 </label>
@@ -2194,7 +2211,7 @@ export default function Home() {
               </div>
               {!productionDigitalHumanReady && (
                 <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
-                  当前没有可交付数字人服务。请在系统设置接入 HTTP 数字人 API 或本地 MuseTalk，再提交正式生产。
+                  当前没有可交付的本地数字人服务。请在系统设置接入本地 HTTP 数字人服务或 MuseTalk，再提交正式生产。HeyGen 仅用于云端效果参考。
                 </div>
               )}
             </div>
@@ -3328,7 +3345,9 @@ export default function Home() {
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-violet-300/20 bg-violet-300/10 px-2.5 py-1 text-xs font-semibold text-violet-100">
-                {digitalHumanPreview?.provider ?? digitalHumanProviderLabel[digitalHumanConfig.provider]}
+                {digitalHumanPreview
+                  ? digitalHumanProviderDisplay(digitalHumanPreview.provider)
+                  : digitalHumanProviderLabel[digitalHumanConfig.provider]}
               </span>
             </div>
 
@@ -3337,7 +3356,7 @@ export default function Home() {
               disabled={
                 digitalHumanGenerating
                 || !ttsPreview
-                || (digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForProduction)
+                || (digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForGeneration)
               }
               onClick={handleGenerateDigitalHuman}
               type="button"
@@ -3352,10 +3371,15 @@ export default function Home() {
 
             {digitalHumanConfig.provider === "placeholder" && (
               <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
-                当前未接生产数字人服务，只能生成测试占位片段；测试片段会被禁止提交到最终成片任务。接入 HeyGen、HTTP API 或 MuseTalk 后才是可交付链路。
+                当前未接生产数字人服务，只能生成测试占位片段；测试片段会被禁止提交到最终成片任务。接入本地 HTTP 服务或 MuseTalk 后才是可交付链路。
               </div>
             )}
-            {digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForProduction && (
+            {cloudReferenceDigitalHuman && digitalHumanReadyForGeneration && (
+              <div className="mt-3 rounded-xl border border-cyan-300/20 bg-cyan-300/10 p-3 text-xs leading-5 text-cyan-100">
+                HeyGen 会调用云端服务，只用于效果参考；本地化交付仍需要 MuseTalk 或本地 HTTP 数字人服务。
+              </div>
+            )}
+            {digitalHumanConfig.provider !== "placeholder" && !digitalHumanReadyForGeneration && (
               <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
                 数字人服务信息还不完整，请到系统设置补全后再生成。
               </div>
