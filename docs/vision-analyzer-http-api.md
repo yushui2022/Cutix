@@ -55,6 +55,7 @@ npm run vision:analyzer-selftest
 ```
 
 出于本地文件安全考虑，参考服务默认只读取 `platform/public` 下的关键帧。需要读取额外目录时使用 `VISION_ANALYZER_FRAME_ROOTS` 显式放行。
+Web 后台的「系统设置 -> 本地视觉打标」也可以直接启动该服务，并显示 health、PID 和日志尾部；相关接口为 `/api/vision-analyzer-service/start` 和 `/api/vision-analyzer-service/status`。
 
 ## 2. 请求格式
 

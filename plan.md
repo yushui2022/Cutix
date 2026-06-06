@@ -61,6 +61,7 @@
 53. 已把默认本地数字人服务健康状态纳入一键生产前的阻断摘要：当数字人 HTTP endpoint 命中 Duix Adapter 或 MuseTalk Service 默认本地地址但服务离线时，生产就绪摘要会直接显示阻断项，避免用户在配置已保存但服务未启动时提交长链路任务。
 54. 已新增 Duix Adapter 字段解析自测：`npm run digital-human:duix-selftest` 会覆盖 top-level、嵌套 `data/result`、数组结果、远程 URL、本地/容器路径、完成但无视频字段、失败状态和进度字段，防止后续改动把 Duix 返回结果识别逻辑改坏。
 55. 已新增本地视觉打标参考服务：`npm run vision:analyzer-service` 会启动 `http://127.0.0.1:8890/analyze`，接入本地 OpenAI-compatible 视觉模型；`npm run vision:analyzer-selftest` 覆盖 JSON 解析、标签归一化、元数据 fallback 和关键帧路径白名单。
+56. 已把本地视觉打标服务接入 Web 启动与状态面板：系统设置里可启动 Vision Analyzer wrapper，自动填入默认 endpoint，并显示 `/health` 在线状态、最近一次 Web 启动 PID 与 stdout/stderr 日志尾部。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
