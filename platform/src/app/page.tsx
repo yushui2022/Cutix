@@ -696,6 +696,33 @@ const digitalHumanSetupSteps = [
   },
 ];
 
+const localDigitalHumanProjectRoute = [
+  {
+    level: "P0 主线",
+    name: "Duix-Avatar / HeyGem",
+    status: "本地平台",
+    detail: "第一期优先验收的本地数字人服务，Cutix 通过 duix-adapter 调用并拿回口播 MP4。",
+  },
+  {
+    level: "P0 保底",
+    name: "MuseTalk + CosyVoice",
+    status: "自研链路",
+    detail: "本地 TTS 加本地口型驱动，保证客户交付不被单一平台绑定。",
+  },
+  {
+    level: "P1 替换",
+    name: "LatentSync",
+    status: "质量备选",
+    detail: "当 MuseTalk 口型或清晰度不够时，用同一个 Provider 契约做 A/B 替换。",
+  },
+  {
+    level: "禁用主线",
+    name: "云 API / Wav2Lip",
+    status: "不可交付",
+    detail: "云数字人只看效果；Wav2Lip 等非商用或老链路不作为客户正式生产方案。",
+  },
+];
+
 function digitalHumanProfileForBrand(brand: IP): BrandDigitalHumanProfile {
   return {
     roleName: brand.digitalHuman?.roleName || `${brand.name}数字人`,
@@ -2779,6 +2806,33 @@ export default function Home() {
                       <div className="text-[11px] leading-5 text-white/45">{step.detail}</div>
                     </div>
                   ))}
+                </div>
+                <div className="mt-3 rounded-lg border border-white/8 bg-black/15 p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-white/70">本地数字人选型路线</div>
+                    <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+                      本地化交付
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {localDigitalHumanProjectRoute.map((project) => (
+                      <div
+                        className="rounded-lg border border-white/8 bg-white/[0.025] p-2.5"
+                        key={`${project.level}-${project.name}`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-white">{project.name}</div>
+                            <div className="mt-0.5 text-[10px] text-white/40">{project.level}</div>
+                          </div>
+                          <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/60">
+                            {project.status}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 text-[10px] leading-4 text-white/45">{project.detail}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/10 p-3 text-[11px] leading-5 text-cyan-100/85">
                   本地 HTTP 模式需要接收 <span className="font-semibold text-cyan-50">text / audioPath / roleName / voiceId / avatarPath</span>，

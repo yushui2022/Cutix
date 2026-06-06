@@ -64,6 +64,7 @@
 56. 已把本地视觉打标服务接入 Web 启动与状态面板：系统设置里可启动 Vision Analyzer wrapper，自动填入默认 endpoint，并显示 `/health` 在线状态、最近一次 Web 启动 PID 与 stdout/stderr 日志尾部。
 57. 已接通上传后自动视觉打标：素材上传成功后，如果已保存本地视觉 endpoint，前端会自动把本次新上传且已抽帧的素材逐个提交到 `/api/assets/analyze`，把视觉模型返回的标签和摘要写回素材库。
 58. 已把视觉 analyzer 纳入一键生产前的生产就绪摘要：未配置视觉 endpoint 会提示仍是基础标签，默认本地 analyzer 离线会显示提醒，在线或内网视觉服务已配置时显示通过。
+59. 已把本地数字人选型路线固化到系统设置和选型文档：后台明确显示 Duix-Avatar/HeyGem 为 P0 本地平台主线、MuseTalk + CosyVoice 为 P0 自研保底、LatentSync 为 P1 质量替换位，云 API 和 Wav2Lip 不进入客户正式生产主链路。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -193,7 +194,7 @@ C:\Users\xiaoy\Desktop\cutix\
 | 质量备选 | LatentSync | 高清口型同步 Provider | 适合替换或补强 MuseTalk 的唇形质量；保留在同一个 HTTP Provider 契约后面 | 推理成本、批量速度和 Windows/服务器部署复杂度要实测，暂不承诺一期主链路 |
 | 二期研究 | HunyuanVideo-Avatar / OmniAvatar | 生成式高质量数字人视频 | 画面表现更强，适合后续做全身、半身、情绪、肢体增强 | 通常更吃 GPU、吞吐不可控、商业授权更复杂；不适合现在作为批量视频工厂主线 |
 | 辅助增强 | EchoMimicV2/V3 / LivePortrait | 头动、表情、姿态增强 | 可以提升头像自然度，或给静态角色做表情动效 | 不负责完整生产链路，只能作为增强模块 |
-| 不推荐主线 | Wav2Lip / SadTalker | 老牌兜底或实验工具 | 可作为故障排查、低配机器兜底参考 | 质量和现代商业交付预期有差距，不应作为客户主方案 |
+| 不推荐主线 | Wav2Lip / SadTalker | 老牌兜底或实验工具 | 可作为故障排查、低配机器兜底参考 | Wav2Lip 存在非商用边界，SadTalker 更适合 demo；二者不应作为客户主方案 |
 | 云端参考 | HeyGen 等 | 只看效果，不进交付 | 可用于老板/客户快速对齐“想要的效果” | 不满足本地化要求，不能解锁正式生产 |
 
 一期原则：
