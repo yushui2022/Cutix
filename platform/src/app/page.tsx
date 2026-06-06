@@ -109,6 +109,7 @@ type VisionConfigDraft = Omit<PublicVisionConfig, "apiKeySet" | "apiKeyPreview">
 };
 
 type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api" | "heygen-api";
+type LocalDigitalHumanService = "duix-adapter" | "musetalk-service";
 
 type PublicDigitalHumanConfig = {
   provider: DigitalHumanProvider;
@@ -595,6 +596,26 @@ const digitalHumanHttpPresets = [
   },
 ];
 
+const localDigitalHumanServices: Array<{
+  id: LocalDigitalHumanService;
+  label: string;
+  endpoint: string;
+  detail: string;
+}> = [
+  {
+    id: "duix-adapter",
+    label: "启动 Duix Adapter",
+    endpoint: "http://127.0.0.1:8789/generate",
+    detail: "本地适配 Duix/HeyGem，默认转发到 8383。",
+  },
+  {
+    id: "musetalk-service",
+    label: "启动 MuseTalk 服务",
+    endpoint: "http://127.0.0.1:8788/generate",
+    detail: "本地 MuseTalk HTTP wrapper，适合自研保底链路。",
+  },
+];
+
 const digitalHumanReadinessStatusLabel: Record<DigitalHumanReadinessCheck["status"], string> = {
   pass: "通过",
   warn: "提醒",
@@ -736,6 +757,7 @@ export default function Home() {
   const [digitalHumanPreview, setDigitalHumanPreview] = useState<DigitalHumanPreview | null>(null);
   const [digitalHumanTesting, setDigitalHumanTesting] = useState(false);
   const [digitalHumanTestResult, setDigitalHumanTestResult] = useState<DigitalHumanReadinessResult | null>(null);
+  const [digitalHumanServiceStarting, setDigitalHumanServiceStarting] = useState<LocalDigitalHumanService | "">("");
   const [digitalHumanBenchmarkStarting, setDigitalHumanBenchmarkStarting] = useState(false);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
@@ -1262,6 +1284,48 @@ export default function Home() {
     }));
     setDigitalHumanTestResult(null);
     setStatus(`已套用 ${label} 预设，请保存并检查数字人接入`);
+  };
+
+  const startLocalDigitalHumanService = async (service: LocalDigitalHumanService) => {
+    const serviceInfo = localDigitalHumanServices.find((item) => item.id === service);
+    setDigitalHumanServiceStarting(service);
+    setStatus(`正在启动${serviceInfo?.label.replace(/^启动\s*/u, "") ?? "本地数字人服务"}...`);
+
+    try {
+      const res = await fetch("/api/digital-human-service/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service }),
+      });
+      const text = await res.text();
+      const payload = (text ? JSON.parse(text) : {}) as {
+        alreadyRunning?: boolean;
+        label?: string;
+        generateEndpoint?: string;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(payload.error || text);
+
+      const endpoint = payload.generateEndpoint || serviceInfo?.endpoint || "";
+      if (endpoint) {
+        setDigitalHumanDraft((current) => ({
+          ...current,
+          provider: "http-api",
+          endpoint,
+        }));
+      }
+      setDigitalHumanTestResult(null);
+      setStatus(
+        payload.alreadyRunning
+          ? `${payload.label ?? "本地数字人服务"} 已在线；请保存并检查 ${endpoint}`
+          : `已启动 ${payload.label ?? "本地数字人服务"}；请保存并检查 ${endpoint}`,
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("本地数字人服务启动失败: " + message);
+    } finally {
+      setDigitalHumanServiceStarting("");
+    }
   };
 
   const saveTags = async (asset: Asset) => {
@@ -2152,6 +2216,29 @@ export default function Home() {
   const benchmarkReadinessDetail = latestDigitalHumanBenchmark
     ? `${latestDigitalHumanBenchmark.summary.passed}/${latestDigitalHumanBenchmark.summary.count} · 平均 ${formatDuration(latestDigitalHumanBenchmark.summary.averageElapsedMs)}`
     : "未跑本地压测";
+  const currentDigitalHumanReadiness =
+    digitalHumanTestResult?.provider === digitalHumanConfig.provider
+    && digitalHumanTestResult.brandId === selectedIP.id
+      ? digitalHumanTestResult
+      : null;
+  const digitalHumanReadinessFailCount =
+    currentDigitalHumanReadiness?.checks.filter((item) => item.status === "fail").length ?? 0;
+  const digitalHumanReadinessWarnCount =
+    currentDigitalHumanReadiness?.checks.filter((item) => item.status === "warn").length ?? 0;
+  const digitalHumanReadinessStatus: DigitalHumanReadinessCheck["status"] = !productionDigitalHumanReady
+    ? "fail"
+    : currentDigitalHumanReadiness
+      ? currentDigitalHumanReadiness.productionReady
+        ? "pass"
+        : "fail"
+      : "warn";
+  const digitalHumanReadinessDetail = !productionDigitalHumanReady
+    ? "未接本地生产服务"
+    : currentDigitalHumanReadiness
+      ? currentDigitalHumanReadiness.productionReady
+        ? `预检通过 · ${new Date(currentDigitalHumanReadiness.generatedAt).toLocaleTimeString("zh-CN", { hour12: false })}`
+        : `预检未通过 · ${digitalHumanReadinessFailCount} 失败 / ${digitalHumanReadinessWarnCount} 提醒`
+      : "已配置，未完成预检";
   const productionReadinessItems: Array<{
     key: string;
     label: string;
@@ -2161,8 +2248,8 @@ export default function Home() {
     {
       key: "digital-human",
       label: "数字人",
-      status: productionDigitalHumanReady ? "pass" : "fail",
-      detail: productionDigitalHumanReady ? digitalHumanConnectionStatus : "未接本地生产服务",
+      status: digitalHumanReadinessStatus,
+      detail: digitalHumanReadinessDetail,
     },
     {
       key: "digital-human-benchmark",
@@ -2438,12 +2525,18 @@ export default function Home() {
                   </div>
                   <span
                     className={`w-fit rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                      productionDigitalHumanReady
+                      digitalHumanReadinessStatus === "pass"
                         ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
-                        : "border-amber-300/20 bg-amber-300/10 text-amber-100"
+                        : digitalHumanReadinessStatus === "fail"
+                          ? "border-red-300/20 bg-red-300/10 text-red-100"
+                          : "border-amber-300/20 bg-amber-300/10 text-amber-100"
                     }`}
                   >
-                    {productionDigitalHumanReady ? "可用于生产" : "等待接入"}
+                    {digitalHumanReadinessStatus === "pass"
+                      ? "预检通过"
+                      : productionDigitalHumanReady
+                        ? "待预检"
+                        : "等待接入"}
                   </span>
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -2477,6 +2570,26 @@ export default function Home() {
                         <div className="text-xs font-semibold text-white">{preset.label}</div>
                         <div className="mt-1 truncate text-[10px] text-cyan-100/65">{preset.endpoint}</div>
                         <div className="mt-1 text-[10px] leading-4 text-white/40">{preset.detail}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {localDigitalHumanServices.map((service) => (
+                      <button
+                        className="inline-flex min-h-16 items-start gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-left transition hover:border-emerald-300/25 hover:bg-emerald-300/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
+                        disabled={Boolean(digitalHumanServiceStarting)}
+                        key={service.id}
+                        onClick={() => void startLocalDigitalHumanService(service.id)}
+                        type="button"
+                      >
+                        <Play className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${digitalHumanServiceStarting === service.id ? "animate-pulse" : ""}`} />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold text-white">
+                            {digitalHumanServiceStarting === service.id ? "启动中..." : service.label}
+                          </span>
+                          <span className="mt-1 block truncate text-[10px] text-emerald-100/65">{service.endpoint}</span>
+                          <span className="mt-1 block text-[10px] leading-4 text-white/40">{service.detail}</span>
+                        </span>
                       </button>
                     ))}
                   </div>

@@ -500,9 +500,16 @@ worker_events   — Worker 日志
 - 前端“任务状态”卡片增加“启动 Worker”按钮，在线后自动禁用，并延迟刷新 Worker 状态。
 - 这仍然是本地 Node Worker MVP，不替代后续 Redis/BullMQ 队列；它的价值是让当前 Web 管理后台更接近“一键生成”的实际操作路径。
 
+### 已完成：Web 端启动本地数字人服务 MVP
+
+- 新增 `POST /api/digital-human-service/start`，Web 后台可以启动项目内的 `digital-human:duix-adapter` 或 `digital-human:musetalk-service`。
+- 启动前会访问默认 `/health`，服务已在线时不重复启动；启动后返回默认 `generateEndpoint`，前端自动填入数字人接入草稿。
+- 数字人系统设置里新增“启动 Duix Adapter”和“启动 MuseTalk 服务”按钮，减少本地部署时反复开终端的操作。
+- 生产就绪摘要不再只看“是否填写 endpoint”，而是把当前 IP 的数字人预检结果纳入状态；没有完成预检时显示“注意”，生成前仍会强制执行预检。
+
 ### 下一步
 
 - 跑通 `Cutix -> Duix/HeyGem 本地服务 -> /api/digital-human -> Remotion -> MP4` 的真实样片，不再接受无声占位或纯 demo 输出。
 - 准备客户可授权的绿幕半身数字人素材，验证 alpha/绿幕抠像进入 Remotion 的稳定性。
-- 在 Web 端补数字人健康检查：模型服务、GPU、FFmpeg、输入输出目录、最近一次生成错误。
+- 继续完善 Duix Adapter 字段映射和输出归档，确保不同 Duix/HeyGem 返回格式都能稳定转成 Cutix 的 `videoUrl/statusUrl`。
 - 继续推进 Redis/BullMQ 或等价队列化实现，把当前本地文件队列升级为可并发、可重试、可恢复的生产队列。
