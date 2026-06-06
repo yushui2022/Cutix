@@ -56,6 +56,7 @@ npm run vision:analyzer-selftest
 
 出于本地文件安全考虑，参考服务默认只读取 `platform/public` 下的关键帧。需要读取额外目录时使用 `VISION_ANALYZER_FRAME_ROOTS` 显式放行。
 Web 后台的「系统设置 -> 本地视觉打标」也可以直接启动该服务，并显示 health、PID 和日志尾部；相关接口为 `/api/vision-analyzer-service/start` 和 `/api/vision-analyzer-service/status`。
+保存本地视觉 endpoint 后，新上传且已抽出关键帧的素材会自动提交到 `/api/assets/analyze` 做视觉打标；未配置 endpoint 时仍只做基础文件名/MIME 标签。
 
 ## 2. 请求格式
 
@@ -110,5 +111,6 @@ Authorization: Bearer <apiKey>
 
 - 视觉打标必须走本地服务或客户内网服务，不依赖云 API。
 - endpoint 未配置时，Cutix 仍会保留上传、抽帧、人工标签和自动选材能力，只是不会补充视觉模型标签。
+- endpoint 已配置时，上传成功的新视频/图片素材会自动提交本地视觉打标；未抽出关键帧的素材仍保留基础标签，等待人工复核或后续重新分析。
 - 视觉模型失败时不会删除原有标签，素材仍可人工复核后启用。
 - 服务返回的标签会进入素材库标签体系，并被 `/api/selection` 用于后续自动选材。

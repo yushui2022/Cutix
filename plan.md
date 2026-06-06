@@ -62,6 +62,7 @@
 54. 已新增 Duix Adapter 字段解析自测：`npm run digital-human:duix-selftest` 会覆盖 top-level、嵌套 `data/result`、数组结果、远程 URL、本地/容器路径、完成但无视频字段、失败状态和进度字段，防止后续改动把 Duix 返回结果识别逻辑改坏。
 55. 已新增本地视觉打标参考服务：`npm run vision:analyzer-service` 会启动 `http://127.0.0.1:8890/analyze`，接入本地 OpenAI-compatible 视觉模型；`npm run vision:analyzer-selftest` 覆盖 JSON 解析、标签归一化、元数据 fallback 和关键帧路径白名单。
 56. 已把本地视觉打标服务接入 Web 启动与状态面板：系统设置里可启动 Vision Analyzer wrapper，自动填入默认 endpoint，并显示 `/health` 在线状态、最近一次 Web 启动 PID 与 stdout/stderr 日志尾部。
+57. 已接通上传后自动视觉打标：素材上传成功后，如果已保存本地视觉 endpoint，前端会自动把本次新上传且已抽帧的素材逐个提交到 `/api/assets/analyze`，把视觉模型返回的标签和摘要写回素材库。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 

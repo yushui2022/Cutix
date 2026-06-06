@@ -1292,7 +1292,20 @@ export default function Home() {
 
       setAssets((current) => [...current, ...createdAssets]);
       setSelectedAssets((current) => Array.from(new Set([...current, ...createdAssets.map((asset) => asset.id)])));
-      setStatus(`已入库 ${createdAssets.length} 个素材，自动标签完成，等待复核`);
+      const visualAssets = createdAssets.filter((asset) => (asset.analysis?.keyframes.length ?? 0) > 0);
+      if (visionConfig.endpoint && visualAssets.length > 0) {
+        setStatus(`已入库 ${createdAssets.length} 个素材，正在提交 ${visualAssets.length} 个素材做本地视觉打标...`);
+        for (const asset of visualAssets) {
+          await analyzeAssetsWithVision(asset);
+        }
+        setStatus(`已入库 ${createdAssets.length} 个素材，本地视觉打标已完成/已记录结果`);
+      } else {
+        setStatus(
+          visionConfig.endpoint
+            ? `已入库 ${createdAssets.length} 个素材，未发现可视觉打标的关键帧`
+            : `已入库 ${createdAssets.length} 个素材，基础标签已完成，等待接入本地视觉打标`,
+        );
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("素材上传失败: " + message);
