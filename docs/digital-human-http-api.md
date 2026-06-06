@@ -170,6 +170,14 @@ cd platform
 npm run digital-human:duix-adapter
 ```
 
+也可以在 Web 后台的系统设置里点击“启动 Duix Adapter”或“启动 MuseTalk 服务”。Web 启动的本地数字人服务会把状态和日志写到：
+
+```text
+platform/data/digital-human-services/
+```
+
+其中 `*.out.log` / `*.err.log` 用于排查服务启动失败、模型路径错误、端口占用或 Duix 原生接口不可达等问题；`*.json` 记录最近一次由 Web 启动的 PID、endpoint 和脚本名。这些文件属于本地运行数据，不应提交到 Git。
+
 默认生成接口：
 
 ```text

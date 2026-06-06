@@ -1303,10 +1303,15 @@ export default function Home() {
         label?: string;
         generateEndpoint?: string;
         error?: string;
+        paths?: {
+          stderrPath?: string;
+          stdoutPath?: string;
+        };
       };
       if (!res.ok) throw new Error(payload.error || text);
 
       const endpoint = payload.generateEndpoint || serviceInfo?.endpoint || "";
+      const logHint = payload.paths?.stderrPath ? `，日志：${payload.paths.stderrPath}` : "";
       if (endpoint) {
         setDigitalHumanDraft((current) => ({
           ...current,
@@ -1317,8 +1322,8 @@ export default function Home() {
       setDigitalHumanTestResult(null);
       setStatus(
         payload.alreadyRunning
-          ? `${payload.label ?? "本地数字人服务"} 已在线；请保存并检查 ${endpoint}`
-          : `已启动 ${payload.label ?? "本地数字人服务"}；请保存并检查 ${endpoint}`,
+          ? `${payload.label ?? "本地数字人服务"} 已在线；请保存并检查 ${endpoint}${logHint}`
+          : `已启动 ${payload.label ?? "本地数字人服务"}；请保存并检查 ${endpoint}${logHint}`,
       );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";

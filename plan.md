@@ -514,6 +514,12 @@ worker_events   — Worker 日志
 - 新增 `DUIX_ARCHIVE_REMOTE_RESULT`、`DUIX_RESULT_DOWNLOAD_TIMEOUT_MS` 和 `DUIX_ALLOW_UNRESOLVED_RESULT` 环境变量，用于控制远程结果归档、下载超时和调试期路径透传。
 - 如果 Duix 返回“已完成”状态但没有可识别的视频结果，adapter 会明确返回失败，避免成片阶段才出现空视频错误。
 
+### 已完成：本地数字人服务启动日志
+
+- Web 启动 `Duix Adapter` 或 `MuseTalk HTTP Service` 时，不再丢弃 stdout/stderr，而是写入 `platform/data/digital-human-services/*.out.log` 和 `*.err.log`。
+- 每次 Web 启动会写入对应服务的 `*.json` 状态文件，记录 service、script、pid、endpoint、healthEndpoint 和启动时间。
+- 前端启动成功提示会显示 stderr 日志路径，客户现场如果端口占用、模型路径错误或 Duix 原生接口不可达，可以直接定位日志。
+
 ### 下一步
 
 - 跑通 `Cutix -> Duix/HeyGem 本地服务 -> /api/digital-human -> Remotion -> MP4` 的真实样片，不再接受无声占位或纯 demo 输出。
