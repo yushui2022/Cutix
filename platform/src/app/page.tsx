@@ -2364,6 +2364,21 @@ export default function Home() {
   const configuredLocalDigitalHumanServiceOffline = Boolean(
     configuredLocalDigitalHumanService && !configuredLocalDigitalHumanService.healthy,
   );
+  const configuredDefaultVisionAnalyzer =
+    Boolean(visionConfig.endpoint)
+    && normalizeLocalEndpoint(visionConfig.endpoint) === normalizeLocalEndpoint("http://127.0.0.1:8890/analyze");
+  const visionReadinessStatus: DigitalHumanReadinessCheck["status"] = !visionConfig.endpoint
+    ? "warn"
+    : configuredDefaultVisionAnalyzer && !visionServiceStatus?.healthy
+      ? "warn"
+      : "pass";
+  const visionReadinessDetail = !visionConfig.endpoint
+    ? `${keyframedAssetCount} 个已抽帧素材，未接视觉模型`
+    : configuredDefaultVisionAnalyzer
+      ? visionServiceStatus?.healthy
+        ? "本地 analyzer 在线"
+        : "本地 analyzer 离线"
+      : "已配置内网视觉服务";
   const benchmarkReadinessStatus: DigitalHumanReadinessCheck["status"] = latestDigitalHumanBenchmark
     ? latestDigitalHumanBenchmark.summary.failed > 0 || latestDigitalHumanBenchmark.summary.passed === 0
       ? "warn"
@@ -2422,6 +2437,12 @@ export default function Home() {
       label: "素材库",
       status: availableAssetCount > 0 ? "pass" : "fail",
       detail: `${availableAssetCount} 个可用素材`,
+    },
+    {
+      key: "vision",
+      label: "视觉",
+      status: visionReadinessStatus,
+      detail: visionReadinessDetail,
     },
     {
       key: "worker",

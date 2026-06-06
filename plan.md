@@ -63,6 +63,7 @@
 55. 已新增本地视觉打标参考服务：`npm run vision:analyzer-service` 会启动 `http://127.0.0.1:8890/analyze`，接入本地 OpenAI-compatible 视觉模型；`npm run vision:analyzer-selftest` 覆盖 JSON 解析、标签归一化、元数据 fallback 和关键帧路径白名单。
 56. 已把本地视觉打标服务接入 Web 启动与状态面板：系统设置里可启动 Vision Analyzer wrapper，自动填入默认 endpoint，并显示 `/health` 在线状态、最近一次 Web 启动 PID 与 stdout/stderr 日志尾部。
 57. 已接通上传后自动视觉打标：素材上传成功后，如果已保存本地视觉 endpoint，前端会自动把本次新上传且已抽帧的素材逐个提交到 `/api/assets/analyze`，把视觉模型返回的标签和摘要写回素材库。
+58. 已把视觉 analyzer 纳入一键生产前的生产就绪摘要：未配置视觉 endpoint 会提示仍是基础标签，默认本地 analyzer 离线会显示提醒，在线或内网视觉服务已配置时显示通过。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
