@@ -3,6 +3,20 @@ import path from "path";
 
 export type RenderTaskStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 
+export type RenderTaskStageDuration = {
+  stage: string;
+  status: RenderTaskStatus;
+  startedAt: string;
+  completedAt: string;
+  elapsedMs: number;
+};
+
+export type RenderTaskStageHistoryItem = {
+  stage: string;
+  status: RenderTaskStatus;
+  at: string;
+};
+
 export type RenderTask = {
   id: string;
   status: RenderTaskStatus;
@@ -22,10 +36,16 @@ export type RenderTask = {
   error?: string;
   createdAt: string;
   updatedAt: string;
+  startedAt?: string;
+  stageStartedAt?: string;
+  stageDurations?: RenderTaskStageDuration[];
+  stageHistory?: RenderTaskStageHistoryItem[];
   completedAt?: string;
 };
 
-export type RenderTaskPatch = Partial<Omit<RenderTask, "id" | "createdAt">>;
+export type RenderTaskPatch = Partial<Omit<RenderTask, "id" | "createdAt">> & {
+  resetTiming?: boolean;
+};
 
 const taskDir = path.join(process.cwd(), "data", "render-tasks");
 
@@ -61,6 +81,8 @@ export async function createRenderTask(input: {
     videoPlanId: input.videoPlanId,
     createdAt: now,
     updatedAt: now,
+    stageStartedAt: now,
+    stageHistory: [{ stage: "等待渲染", status: "queued", at: now }],
   });
 }
 
@@ -68,10 +90,58 @@ export async function updateRenderTask(taskId: string, patch: RenderTaskPatch) {
   const current = await readRenderTask(taskId);
   if (!current) throw new Error(`Render task not found: ${taskId}`);
 
+  const { resetTiming, ...taskPatch } = patch;
+  const now = new Date().toISOString();
+  const nextStatus = taskPatch.status ?? current.status;
+  const nextStage = taskPatch.stage ?? current.stage;
+  const stageChanged = typeof taskPatch.stage === "string" && taskPatch.stage !== current.stage;
+  const statusChanged = typeof taskPatch.status === "string" && taskPatch.status !== current.status;
+  const currentIsTerminal = current.status === "completed" || current.status === "failed" || current.status === "canceled";
+  const nextIsTerminal = nextStatus === "completed" || nextStatus === "failed" || nextStatus === "canceled";
+  const shouldCloseCurrentStage = !resetTiming && (stageChanged || statusChanged || (!currentIsTerminal && nextIsTerminal));
+  const nextStageDurations = resetTiming ? [] : [...(current.stageDurations ?? [])];
+  const nextStageHistory = resetTiming
+    ? [{ stage: nextStage, status: nextStatus, at: now }]
+    : current.stageHistory
+      ? [...current.stageHistory]
+      : [{ stage: current.stage, status: current.status, at: current.stageStartedAt ?? current.createdAt }];
+  let nextStageStartedAt = resetTiming ? now : current.stageStartedAt ?? current.createdAt;
+  const nextStartedAt = resetTiming
+    ? nextStatus === "running"
+      ? now
+      : undefined
+    : current.startedAt ?? (nextStatus === "running" ? now : undefined);
+
+  if (shouldCloseCurrentStage) {
+    const previousStageStartedAt = current.stageStartedAt ?? current.updatedAt ?? current.createdAt;
+    const previousStartedMs = Date.parse(previousStageStartedAt);
+    const completedMs = Date.parse(now);
+    if (Number.isFinite(previousStartedMs) && Number.isFinite(completedMs) && completedMs >= previousStartedMs) {
+      nextStageDurations.push({
+        stage: current.stage,
+        status: current.status,
+        startedAt: previousStageStartedAt,
+        completedAt: now,
+        elapsedMs: completedMs - previousStartedMs,
+      });
+    }
+    nextStageStartedAt = now;
+  }
+
+  if ((stageChanged || statusChanged) && !resetTiming) {
+    nextStageHistory.push({ stage: nextStage, status: nextStatus, at: now });
+  }
+
   return writeRenderTask({
     ...current,
-    ...patch,
-    updatedAt: new Date().toISOString(),
+    ...taskPatch,
+    status: nextStatus,
+    stage: nextStage,
+    updatedAt: now,
+    startedAt: nextStartedAt,
+    stageStartedAt: nextStageStartedAt,
+    stageDurations: nextStageDurations,
+    stageHistory: nextStageHistory,
   });
 }
 

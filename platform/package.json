@@ -13,6 +13,7 @@
     "digital-human:duix-selftest": "node scripts/duix-adapter-selftest.mjs",
     "vision:analyzer-service": "node scripts/vision-analyzer-http-service.mjs",
     "vision:analyzer-selftest": "node scripts/vision-analyzer-selftest.mjs",
+    "render-task-store:selftest": "tsx scripts/render-task-store-selftest.ts",
     "render:local-assets": "node scripts/render-existing-assets-video.mjs",
     "worker:render": "tsx src/workers/render-worker.ts",
     "worker:render:once": "tsx src/workers/render-worker.ts --once",

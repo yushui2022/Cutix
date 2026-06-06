@@ -33,6 +33,7 @@ export async function POST(
     scenes: undefined,
     completedAt: undefined,
     payloadStored: true,
+    resetTiming: true,
   });
 
   void drainRenderTaskStream(request.nextUrl.origin, taskId, payload);

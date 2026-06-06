@@ -353,9 +353,11 @@ type DigitalHumanReadinessResult = {
   generatedAt: string;
 };
 
+type RenderTaskStatus = "queued" | "running" | "completed" | "failed" | "canceled";
+
 type RenderTask = {
   id: string;
-  status: "queued" | "running" | "completed" | "failed" | "canceled";
+  status: RenderTaskStatus;
   stage: string;
   brandName: string;
   templateName: string;
@@ -368,6 +370,15 @@ type RenderTask = {
   error?: string;
   createdAt: string;
   updatedAt: string;
+  startedAt?: string;
+  stageStartedAt?: string;
+  stageDurations?: Array<{
+    stage: string;
+    status: RenderTaskStatus;
+    startedAt: string;
+    completedAt: string;
+    elapsedMs: number;
+  }>;
   completedAt?: string;
 };
 
@@ -811,6 +822,31 @@ function renderTaskTiming(task: RenderTask, nowMs = Date.now()) {
           : "取消前";
 
   return { label, valueMs: endMs - startMs };
+}
+
+function renderTaskStageTimings(task: RenderTask, nowMs = Date.now()) {
+  const completedStages = (task.stageDurations ?? [])
+    .filter((stage) => Number.isFinite(stage.elapsedMs) && stage.elapsedMs >= 0)
+    .map((stage) => ({
+      label: stage.stage,
+      valueMs: stage.elapsedMs,
+      current: false,
+    }));
+  const currentStageStartedMs = parseTimestampMs(task.stageStartedAt);
+
+  if (
+    currentStageStartedMs !== null
+    && nowMs >= currentStageStartedMs
+    && (task.status === "queued" || task.status === "running")
+  ) {
+    completedStages.push({
+      label: task.stage,
+      valueMs: nowMs - currentStageStartedMs,
+      current: true,
+    });
+  }
+
+  return completedStages.slice(-4);
 }
 
 function normalizeLocalEndpoint(value: string) {
@@ -4562,6 +4598,22 @@ export default function Home() {
                         {formatDuration(renderTaskTiming(currentRenderTask, taskMetricsNowMs)?.valueMs ?? 0)}
                       </span>
                     )}
+                    {renderTaskStageTimings(currentRenderTask, taskMetricsNowMs).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {renderTaskStageTimings(currentRenderTask, taskMetricsNowMs).map((stage) => (
+                          <span
+                            className={`rounded-md border px-1.5 py-0.5 text-[10px] ${
+                              stage.current
+                                ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-50"
+                                : "border-white/10 bg-white/[0.04] text-cyan-100/70"
+                            }`}
+                            key={`${stage.label}-${stage.valueMs}`}
+                          >
+                            {stage.label} {formatDuration(stage.valueMs)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -4772,6 +4824,7 @@ export default function Home() {
                 <div className="text-xs font-semibold text-white/55">最近生成任务</div>
                 {renderTasks.slice(0, 3).map((task) => {
                   const taskTiming = renderTaskTiming(task, taskMetricsNowMs);
+                  const taskStageTimings = renderTaskStageTimings(task, taskMetricsNowMs);
                   return (
                     <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3" key={task.id}>
                       <div className="mb-1 flex items-center justify-between gap-2">
@@ -4791,6 +4844,22 @@ export default function Home() {
                         )}
                       </div>
                       <div className="mt-1 line-clamp-1 text-[11px] text-white/55">{task.stage}</div>
+                      {taskStageTimings.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {taskStageTimings.map((stage) => (
+                            <span
+                              className={`rounded-md border px-1.5 py-0.5 text-[10px] ${
+                                stage.current
+                                  ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-100"
+                                  : "border-white/10 bg-white/[0.04] text-white/45"
+                              }`}
+                              key={`${task.id}-${stage.label}-${stage.valueMs}`}
+                            >
+                              {stage.label} {formatDuration(stage.valueMs)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {task.error && (
                         <div className="mt-1 line-clamp-2 rounded-lg border border-red-300/15 bg-red-300/10 px-2 py-1.5 text-[10px] leading-4 text-red-100/80">
                           {task.error}
