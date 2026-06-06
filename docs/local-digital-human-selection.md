@@ -1,6 +1,6 @@
 # 本地数字人选型说明
 
-更新时间：2026-06-05
+更新时间：2026-06-06
 
 ## 1. 结论
 
@@ -16,6 +16,14 @@ Cutix 的正式交付链路只接受本地数字人服务，不依赖 HeyGen、D
 | P2 | LiveTalking / EchoMimicV2 / LivePortrait | 实时交互、表情、头动、半身动效增强 | 否 |
 | P2 | HunyuanVideo-Avatar / OmniAvatar | 高质量生成式数字人研究项 | 否 |
 | P3 | Wav2Lip / SadTalker | 应急或实验参考 | 否 |
+
+老板要求本地化部署后，第一期不要再把云端数字人 API 当成生产方案。Cutix 的实际落地建议是“一条验收主线 + 一条自研保底 + 一个质量替换位”：
+
+1. **验收主线：Duix-Avatar / HeyGem。** 优先用它证明客户服务器上可以部署一个本地数字人服务，并且 Cutix 能通过本地 HTTP 触发生成、拿回本地 MP4、继续做 Remotion 合成。
+2. **自研保底：CosyVoice + MuseTalk。** 如果 Duix 授权、稳定性、画质或接口不满足客户要求，Cutix 仍然可以走本地 TTS + 本地口型驱动，保证不被某个平台卡死。
+3. **质量替换：LatentSync。** 当 MuseTalk 口型或清晰度不够时，把 LatentSync 接到同一个 Provider 契约里做 A/B，不改变 Cutix 主系统。
+
+因此当前不建议把 LiveTalking、EchoMimicV2、LivePortrait、SadTalker、Wav2Lip 作为第一期主线。它们可以做效果增强、实时互动研究或兜底对照，但不应该承担客户第一版批量视频工厂的核心验收。
 
 ## 1.1 本地化部署硬规则
 

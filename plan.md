@@ -481,3 +481,28 @@ worker_events   — Worker 日志
 ### 下一步
 
 - 这一步仍是本地文件台账 + Node Worker 的 MVP，不是最终生产队列。下一步应接入 Redis/BullMQ，实现多 Worker 并发、运行中任务超时/中断、失败重试策略和完整错误日志。
+
+## 13. 2026-06-06 推进记录
+
+### 已完成：本地数字人交付路线复核
+
+- 老板明确要求数字人本地化部署后，Cutix 不再把 HeyGen、D-ID、Synthesia 等云端 API 作为生产主线；云端服务只能用于效果参考或早期对比。
+- 第一优先级固定为 `Duix-Avatar / HeyGem`：作为客户验收主线，用本地服务证明“数字人可部署在客户服务器，并由 Cutix 本地触发生成”。
+- 一期保底链路固定为 `CosyVoice + MuseTalk`：用本地 TTS + 本地 lip-sync 保证系统不被单一数字人平台绑定。
+- 高清替换位固定为 `LatentSync`：当 MuseTalk 或 Duix 的口型/画质不过关时，按同一 `/api/digital-human` Provider 契约替换，不重写主系统。
+- `LiveTalking / EchoMimicV2 / LivePortrait` 只进入二期增强或实时互动研究；`Wav2Lip / SadTalker` 只做应急对照，不作为商业批量视频工厂的主线。
+- 详细选型依据已经写入 `docs/local-digital-human-selection.md`。
+
+### 已完成：Web 端启动 Render Worker MVP
+
+- 新增 `POST /api/render-worker/start`，Web 后台可以一键启动本地 `npm run worker:render`，不再要求用户打开终端手工启动 Worker。
+- 启动接口会先检查 30 秒内有心跳的 render worker；已有健康 Worker 时直接返回在线状态，避免重复启动。
+- 前端“任务状态”卡片增加“启动 Worker”按钮，在线后自动禁用，并延迟刷新 Worker 状态。
+- 这仍然是本地 Node Worker MVP，不替代后续 Redis/BullMQ 队列；它的价值是让当前 Web 管理后台更接近“一键生成”的实际操作路径。
+
+### 下一步
+
+- 跑通 `Cutix -> Duix/HeyGem 本地服务 -> /api/digital-human -> Remotion -> MP4` 的真实样片，不再接受无声占位或纯 demo 输出。
+- 准备客户可授权的绿幕半身数字人素材，验证 alpha/绿幕抠像进入 Remotion 的稳定性。
+- 在 Web 端补数字人健康检查：模型服务、GPU、FFmpeg、输入输出目录、最近一次生成错误。
+- 继续推进 Redis/BullMQ 或等价队列化实现，把当前本地文件队列升级为可并发、可重试、可恢复的生产队列。

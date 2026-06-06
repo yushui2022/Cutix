@@ -745,6 +745,7 @@ export default function Home() {
   const [cancelingTaskId, setCancelingTaskId] = useState("");
   const [renderTasks, setRenderTasks] = useState<RenderTask[]>([]);
   const [workerStatus, setWorkerStatus] = useState<WorkerStatusPayload | null>(null);
+  const [workerStarting, setWorkerStarting] = useState(false);
   const [digitalHumanBenchmarkReports, setDigitalHumanBenchmarkReports] = useState<DigitalHumanBenchmarkReport[]>([]);
   const [storageCleanupRunning, setStorageCleanupRunning] = useState(false);
   const [storageCleanupResult, setStorageCleanupResult] = useState<StorageCleanupResult | null>(null);
@@ -834,6 +835,30 @@ export default function Home() {
       return null;
     } finally {
       setStorageCleanupRunning(false);
+    }
+  }, [loadWorkerStatus]);
+
+  const startRenderWorker = useCallback(async () => {
+    setWorkerStarting(true);
+    setStatus("正在启动 Render Worker...");
+
+    try {
+      const res = await fetch("/api/render-worker/start", { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      const payload = (await res.json()) as { alreadyRunning?: boolean; workerId?: string; pid?: number };
+      setStatus(
+        payload.alreadyRunning
+          ? "Render Worker 已在线"
+          : `已启动 Render Worker：${payload.workerId ?? payload.pid ?? "等待心跳"}`,
+      );
+      window.setTimeout(() => {
+        void loadWorkerStatus();
+      }, 1500);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("Render Worker 启动失败: " + message);
+    } finally {
+      setWorkerStarting(false);
     }
   }, [loadWorkerStatus]);
 
@@ -4008,16 +4033,27 @@ export default function Home() {
           <section className={cardBase}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-white">任务状态</h2>
-              {generating ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#ff3b5c]/30 bg-[#ff3b5c]/10 px-2.5 py-1 text-xs font-semibold text-[#ff3b5c]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#ff3b5c] pulse-dot" />
-                  运行中
-                </span>
-              ) : (
-                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-medium text-white/50">
-                  空闲
-                </span>
-              )}
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs font-semibold text-white/65 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                  disabled={workerStarting || healthyWorkerCount > 0}
+                  onClick={() => void startRenderWorker()}
+                  type="button"
+                >
+                  <RefreshCcw className={`h-3.5 w-3.5 ${workerStarting ? "animate-spin" : ""}`} />
+                  {workerStarting ? "启动中" : healthyWorkerCount > 0 ? "Worker 在线" : "启动 Worker"}
+                </button>
+                {generating ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#ff3b5c]/30 bg-[#ff3b5c]/10 px-2.5 py-1 text-xs font-semibold text-[#ff3b5c]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#ff3b5c] pulse-dot" />
+                    运行中
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-medium text-white/50">
+                    空闲
+                  </span>
+                )}
+              </div>
             </div>
             <div className="rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/80">
               {status}
