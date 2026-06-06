@@ -1,4 +1,4 @@
-import { listRenderTasks } from "@/lib/render-task-store";
+import { defaultRenderTaskLeaseMs, listRenderTasks } from "@/lib/render-task-store";
 import { listWorkerStates } from "@/lib/worker-state-store";
 import fs from "fs/promises";
 import path from "path";
@@ -75,7 +75,15 @@ async function storageUsage() {
 export async function GET() {
   const [tasks, workers, storage] = await Promise.all([listRenderTasks(200), listWorkerStates(), storageUsage()]);
   const now = Date.now();
+  const leaseMs = defaultRenderTaskLeaseMs();
   const healthyWorkers = workers.filter((worker) => now - Date.parse(worker.lastHeartbeatAt) < 30_000);
+  const retrying = tasks.filter((task) => task.status === "queued" && (task.attempt ?? 0) > 0).length;
+  const lockedRunning = tasks.filter((task) => task.status === "running" && Boolean(task.lockedBy)).length;
+  const staleRunning = tasks.filter((task) => {
+    if (task.status !== "running") return false;
+    const activityMs = Math.max(Date.parse(task.updatedAt) || 0, Date.parse(task.lockedAt ?? "") || 0);
+    return activityMs > 0 && now - activityMs > leaseMs;
+  }).length;
 
   return Response.json(
     {
@@ -88,6 +96,10 @@ export async function GET() {
         completed: tasks.filter((task) => task.status === "completed").length,
         failed: tasks.filter((task) => task.status === "failed").length,
         canceled: tasks.filter((task) => task.status === "canceled").length,
+        retrying,
+        lockedRunning,
+        staleRunning,
+        leaseMs,
       },
       storage,
       generatedAt: new Date().toISOString(),

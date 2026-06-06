@@ -1,16 +1,30 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createRenderTask, readRenderTask, updateRenderTask } from "../src/lib/render-task-store";
+import {
+  claimNextQueuedRenderTask,
+  createRenderTask,
+  readRenderTask,
+  recoverTimedOutRenderTasks,
+  releaseRenderTaskLock,
+  scheduleRenderTaskRetry,
+  updateRenderTask,
+} from "../src/lib/render-task-store";
 
 const taskId = `task_selftest_${Date.now()}`;
-const taskFile = path.join(process.cwd(), "data", "render-tasks", `${taskId}.json`);
+const queueTaskId = `${taskId}_queue`;
+const staleTaskId = `${taskId}_stale`;
+const taskIds = [taskId, queueTaskId, staleTaskId];
+const taskFiles = taskIds.map((id) => path.join(process.cwd(), "data", "render-tasks", `${id}.json`));
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function main() {
+  process.env.CUTIX_RENDER_TASK_RETRY_BASE_MS = "0";
+  process.env.CUTIX_RENDER_TASK_RETRY_MAX_MS = "0";
+
   const created = await createRenderTask({
     id: taskId,
     brandId: "selftest",
@@ -78,12 +92,85 @@ async function main() {
   const persisted = await readRenderTask(taskId);
   assert.equal(persisted?.stage, "等待重试渲染");
 
-  console.log("[render-task-store:selftest] 18 checks passed");
+  await updateRenderTask(taskId, {
+    status: "completed",
+    stage: "重试验证完成",
+    completedAt: new Date().toISOString(),
+  });
+
+  await createRenderTask({
+    id: queueTaskId,
+    brandId: "selftest",
+    brandName: "Self Test",
+    templateId: "default",
+    templateName: "Default",
+    platform: "test",
+    maxAttempts: 2,
+  });
+  await updateRenderTask(queueTaskId, {
+    stage: "等待 Worker",
+    payloadStored: true,
+  });
+  const claimed = await claimNextQueuedRenderTask("selftest-worker", { leaseMs: 1_000, taskIds: [queueTaskId] });
+  assert.equal(claimed?.id, queueTaskId);
+  assert.equal(claimed?.status, "running");
+  assert.equal(claimed?.attempt, 1);
+  assert.equal(claimed?.lockedBy, "selftest-worker");
+
+  await updateRenderTask(queueTaskId, {
+    status: "failed",
+    stage: "失败",
+    error: "boom",
+    completedAt: new Date().toISOString(),
+  });
+  const retry = await scheduleRenderTaskRetry(queueTaskId, "boom");
+  assert.equal(retry.retried, true);
+  assert.equal(retry.task?.status, "queued");
+  assert.equal(retry.task?.lastError, "boom");
+  assert.ok(retry.task?.nextRunAt);
+
+  const reclaimed = await claimNextQueuedRenderTask("selftest-worker", { leaseMs: 1_000, taskIds: [queueTaskId] });
+  assert.equal(reclaimed?.id, queueTaskId);
+  assert.equal(reclaimed?.attempt, 2);
+  await updateRenderTask(queueTaskId, {
+    status: "failed",
+    stage: "再次失败",
+    error: "boom again",
+    completedAt: new Date().toISOString(),
+  });
+  const exhausted = await scheduleRenderTaskRetry(queueTaskId, "boom again");
+  assert.equal(exhausted.retried, false);
+
+  await createRenderTask({
+    id: staleTaskId,
+    brandId: "selftest",
+    brandName: "Self Test",
+    templateId: "default",
+    templateName: "Default",
+    platform: "test",
+    maxAttempts: 2,
+  });
+  await updateRenderTask(staleTaskId, {
+    stage: "等待 Worker",
+    payloadStored: true,
+  });
+  const staleClaim = await claimNextQueuedRenderTask("stale-worker", { leaseMs: 1_000, taskIds: [staleTaskId] });
+  assert.equal(staleClaim?.id, staleTaskId);
+  await sleep(10);
+  const recovered = await recoverTimedOutRenderTasks({ leaseMs: 1, taskIds: [staleTaskId] });
+  assert.equal(recovered.requeued, 1);
+  const staleRecovered = await readRenderTask(staleTaskId);
+  assert.equal(staleRecovered?.status, "queued");
+  assert.equal(staleRecovered?.attempt, 1);
+  assert.equal(staleRecovered?.lockedBy, undefined);
+
+  console.log("[render-task-store:selftest] 44 checks passed");
 }
 
 main()
   .finally(async () => {
-    await fs.rm(taskFile, { force: true });
+    await Promise.all(taskIds.map((id) => releaseRenderTaskLock(id)));
+    await Promise.all(taskFiles.map((file) => fs.rm(file, { force: true })));
   })
   .catch((error: unknown) => {
     console.error("[render-task-store:selftest] failed", error);

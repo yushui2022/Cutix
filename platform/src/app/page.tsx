@@ -368,6 +368,7 @@ type RenderTask = {
   coverUrl?: string;
   payloadStored?: boolean;
   error?: string;
+  lastError?: string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -379,6 +380,11 @@ type RenderTask = {
     completedAt: string;
     elapsedMs: number;
   }>;
+  attempt?: number;
+  maxAttempts?: number;
+  lockedBy?: string;
+  lockedAt?: string;
+  nextRunAt?: string;
   completedAt?: string;
 };
 
@@ -403,6 +409,10 @@ type WorkerStatusPayload = {
     completed: number;
     failed: number;
     canceled: number;
+    retrying?: number;
+    lockedRunning?: number;
+    staleRunning?: number;
+    leaseMs?: number;
   };
   storage?: {
     totalBytes: number;
@@ -2455,6 +2465,9 @@ export default function Home() {
     || Boolean(digitalHumanDraft.apiKey.trim());
   const healthyWorkerCount = workerStatus?.healthyWorkers.length ?? 0;
   const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
+  const queueRetryingCount = workerStatus?.queue.retrying ?? 0;
+  const lockedRunningCount = workerStatus?.queue.lockedRunning ?? 0;
+  const staleRunningCount = workerStatus?.queue.staleRunning ?? 0;
   const storageTotalBytes = workerStatus?.storage?.totalBytes ?? 0;
   const storageWarnBytes = 20 * 1024 * 1024 * 1024;
   const taskMetricsNowMs = Date.now();
@@ -2568,7 +2581,7 @@ export default function Home() {
       label: "Worker",
       status: healthyWorkerCount > 0 ? "pass" : "warn",
       detail: healthyWorkerCount > 0
-        ? `${healthyWorkerCount} 个在线，队列 ${queueActiveCount}，${renderDurationSampleText}`
+        ? `${healthyWorkerCount} 个在线，队列 ${queueActiveCount}，重试 ${queueRetryingCount}，${renderDurationSampleText}`
         : `未检测到独立 Worker，${renderDurationSampleText}`,
     },
     {
@@ -2617,6 +2630,12 @@ export default function Home() {
               <span className="font-semibold text-white">{healthyWorkerCount}</span>
               <span className="text-white/30">/</span>
               队列 <span className="font-semibold text-white">{queueActiveCount}</span>
+              {queueRetryingCount > 0 && (
+                <>
+                  <span className="text-white/30">/</span>
+                  重试 <span className="font-semibold text-amber-100">{queueRetryingCount}</span>
+                </>
+              )}
             </div>
             <button
               className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${
@@ -4585,6 +4604,27 @@ export default function Home() {
             <div className="rounded-xl border border-white/8 bg-white/[0.03] p-3 text-sm text-white/80">
               {status}
             </div>
+            {workerStatus && (
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-white/50">
+                  排队 {workerStatus.queue.queued}
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-white/50">
+                  运行 {workerStatus.queue.running}
+                </span>
+                <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-amber-100/80">
+                  自动重试 {queueRetryingCount}
+                </span>
+                <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2 py-0.5 text-cyan-100/80">
+                  锁定 {lockedRunningCount}
+                </span>
+                {staleRunningCount > 0 && (
+                  <span className="rounded-full border border-red-300/20 bg-red-300/10 px-2 py-0.5 text-red-100">
+                    疑似超时 {staleRunningCount}
+                  </span>
+                )}
+              </div>
+            )}
             {currentTaskId && (
               <div className="mt-2 rounded-xl border border-cyan-300/15 bg-cyan-300/10 p-3 text-xs text-cyan-100">
                 <div className="font-semibold">当前任务：{currentTaskId}</div>
@@ -4596,6 +4636,18 @@ export default function Home() {
                         {" · "}
                         {renderTaskTiming(currentRenderTask, taskMetricsNowMs)?.label}{" "}
                         {formatDuration(renderTaskTiming(currentRenderTask, taskMetricsNowMs)?.valueMs ?? 0)}
+                      </span>
+                    )}
+                    {(currentRenderTask.attempt ?? 0) > 0 && (
+                      <span>
+                        {" · "}
+                        第 {currentRenderTask.attempt}/{currentRenderTask.maxAttempts ?? 1} 次
+                      </span>
+                    )}
+                    {currentRenderTask.lockedBy && (
+                      <span>
+                        {" · "}
+                        {currentRenderTask.lockedBy}
                       </span>
                     )}
                     {renderTaskStageTimings(currentRenderTask, taskMetricsNowMs).length > 0 && (
@@ -4842,8 +4894,25 @@ export default function Home() {
                             {taskTiming.label} {formatDuration(taskTiming.valueMs)}
                           </span>
                         )}
+                        {(task.attempt ?? 0) > 0 && (
+                          <span>
+                            {" · "}
+                            第 {task.attempt}/{task.maxAttempts ?? 1} 次
+                          </span>
+                        )}
+                        {task.nextRunAt && task.status === "queued" && (
+                          <span>
+                            {" · "}
+                            下次 {new Date(task.nextRunAt).toLocaleTimeString("zh-CN", { hour12: false })}
+                          </span>
+                        )}
                       </div>
                       <div className="mt-1 line-clamp-1 text-[11px] text-white/55">{task.stage}</div>
+                      {task.lockedBy && (
+                        <div className="mt-1 line-clamp-1 text-[10px] text-cyan-100/65">
+                          锁定 Worker：{task.lockedBy}
+                        </div>
+                      )}
                       {taskStageTimings.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {taskStageTimings.map((stage) => (
@@ -4863,6 +4932,11 @@ export default function Home() {
                       {task.error && (
                         <div className="mt-1 line-clamp-2 rounded-lg border border-red-300/15 bg-red-300/10 px-2 py-1.5 text-[10px] leading-4 text-red-100/80">
                           {task.error}
+                        </div>
+                      )}
+                      {!task.error && task.lastError && (
+                        <div className="mt-1 line-clamp-2 rounded-lg border border-amber-300/15 bg-amber-300/10 px-2 py-1.5 text-[10px] leading-4 text-amber-100/80">
+                          上次失败：{task.lastError}
                         </div>
                       )}
                       <div className="mt-2 flex flex-wrap gap-2">

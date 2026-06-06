@@ -1,4 +1,11 @@
-import { listRenderTasks, readRenderTask, updateRenderTask } from "../lib/render-task-store";
+import {
+  claimNextQueuedRenderTask,
+  clearRenderTaskLease,
+  readRenderTask,
+  recoverTimedOutRenderTasks,
+  scheduleRenderTaskRetry,
+  updateRenderTask,
+} from "../lib/render-task-store";
 import { readRenderTaskPayload } from "../lib/render-task-payload-store";
 import { drainRenderTaskStream } from "../lib/render-task-runner";
 import { writeWorkerState } from "../lib/worker-state-store";
@@ -12,13 +19,6 @@ let processedTasks = 0;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function nextQueuedTask() {
-  const tasks = await listRenderTasks(100);
-  return tasks
-    .filter((task) => task.status === "queued" && task.payloadStored)
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
 }
 
 async function heartbeat(status: "idle" | "processing" | "stopped", currentTaskId?: string) {
@@ -35,7 +35,12 @@ async function heartbeat(status: "idle" | "processing" | "stopped", currentTaskI
 }
 
 async function processNextTask() {
-  const task = await nextQueuedTask();
+  const recovered = await recoverTimedOutRenderTasks();
+  if (recovered.requeued > 0 || recovered.failed > 0) {
+    console.log(`[render-worker] recovered timed-out tasks requeued=${recovered.requeued} failed=${recovered.failed}`);
+  }
+
+  const task = await claimNextQueuedRenderTask(workerId, { stage: "独立 Worker 已接管" });
   if (!task) {
     await heartbeat("idle");
     return false;
@@ -49,24 +54,33 @@ async function processNextTask() {
       error: "Render payload is missing",
       completedAt: new Date().toISOString(),
     });
+    await clearRenderTaskLease(task.id, workerId);
     processedTasks += 1;
     await heartbeat("idle");
     return true;
   }
 
   const latestTask = await readRenderTask(task.id);
-  if (latestTask?.status !== "queued") {
+  if (latestTask?.status !== "running" || latestTask.lockedBy !== workerId) {
+    await clearRenderTaskLease(task.id, workerId);
     await heartbeat("idle");
     return true;
   }
 
-  await updateRenderTask(task.id, {
-    status: "running",
-    stage: "独立 Worker 已接管",
-  });
-  console.log(`[render-worker] start ${task.id}`);
+  console.log(`[render-worker] start ${task.id} attempt=${latestTask.attempt ?? 1}/${latestTask.maxAttempts ?? 1}`);
   await heartbeat("processing", task.id);
   await drainRenderTaskStream(origin, task.id, payload);
+
+  const completedTask = await readRenderTask(task.id);
+  if (completedTask?.status === "failed") {
+    const retry = await scheduleRenderTaskRetry(task.id, completedTask.error);
+    if (retry.retried) {
+      console.log(`[render-worker] retry scheduled ${task.id} delayMs=${retry.delayMs}`);
+    }
+  } else {
+    await clearRenderTaskLease(task.id, workerId);
+  }
+
   processedTasks += 1;
   await heartbeat("idle");
   console.log(`[render-worker] done ${task.id}`);

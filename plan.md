@@ -67,6 +67,7 @@
 59. 已把本地数字人选型路线固化到系统设置和选型文档：后台明确显示 Duix-Avatar/HeyGem 为 P0 本地平台主线、MuseTalk + CosyVoice 为 P0 自研保底、LatentSync 为 P1 质量替换位，云 API 和 Wav2Lip 不进入客户正式生产主链路。
 60. 已补齐 Worker/任务状态的渲染耗时监控：任务状态卡会显示最近完成任务平均总耗时、P95、失败任务数，最近任务列表会显示等待/历时/总耗时和失败错误摘要，便于批量生产时评估吞吐和定位失败。
 61. 已把 render task 阶段耗时写入任务台账：任务状态变更时会记录 `startedAt`、`stageStartedAt`、`stageDurations` 和 `stageHistory`，前端最近任务会显示各阶段耗时 chip；重试会重置本轮计时，并新增 `npm run render-task-store:selftest` 覆盖阶段切换与重试重置。
+62. 已把本地 Render Worker 升级为带 lease 的可靠队列 MVP：Worker 领取任务会写入 `attempt/maxAttempts/lockedBy/lockedAt/nextRunAt/lastError`，失败会按指数退避自动回队列，超时运行任务会被恢复或打失败；前端任务状态显示自动重试、锁定 Worker、疑似超时、尝试次数和上次错误。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 

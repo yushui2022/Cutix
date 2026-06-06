@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { readRenderTask, updateRenderTask } from "@/lib/render-task-store";
+import { defaultRenderTaskMaxAttempts, readRenderTask, updateRenderTask } from "@/lib/render-task-store";
 import { readRenderTaskPayload } from "@/lib/render-task-payload-store";
 import { drainRenderTaskStream } from "@/lib/render-task-runner";
 
@@ -32,6 +32,12 @@ export async function POST(
     hasAudio: undefined,
     scenes: undefined,
     completedAt: undefined,
+    lastError: task.error ?? task.lastError,
+    attempt: 0,
+    maxAttempts: task.maxAttempts ?? defaultRenderTaskMaxAttempts(),
+    lockedBy: undefined,
+    lockedAt: undefined,
+    nextRunAt: undefined,
     payloadStored: true,
     resetTiming: true,
   });
