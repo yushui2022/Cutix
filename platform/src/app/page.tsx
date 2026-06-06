@@ -736,6 +736,7 @@ export default function Home() {
   const [digitalHumanPreview, setDigitalHumanPreview] = useState<DigitalHumanPreview | null>(null);
   const [digitalHumanTesting, setDigitalHumanTesting] = useState(false);
   const [digitalHumanTestResult, setDigitalHumanTestResult] = useState<DigitalHumanReadinessResult | null>(null);
+  const [digitalHumanBenchmarkStarting, setDigitalHumanBenchmarkStarting] = useState(false);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
   const [status, setStatus] = useState("待生成");
@@ -1525,6 +1526,56 @@ export default function Home() {
       setStatus("数字人接入检查失败: " + message);
     } finally {
       setDigitalHumanTesting(false);
+    }
+  };
+
+  const handleStartDigitalHumanBenchmark = async () => {
+    const clip = ttsPreview?.clips[0];
+    if (!clip) {
+      setStatus("请先生成 TTS 音频，再启动数字人压测");
+      return;
+    }
+    if (!digitalHumanConfig.endpoint) {
+      setStatus("请先在系统设置里保存本地数字人 HTTP endpoint");
+      return;
+    }
+
+    setDigitalHumanBenchmarkStarting(true);
+    setStatus("正在启动本地数字人 benchmark...");
+
+    try {
+      const profile = digitalHumanProfileForBrand(selectedIP);
+      const res = await fetch("/api/digital-human-benchmark", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: digitalHumanConfig.endpoint,
+          audioUrl: clip.audioUrl,
+          durationMs: clip.durationMs,
+          count: Math.min(20, Math.max(1, count)),
+          text: clip.copy,
+          brand: {
+            id: selectedIP.id,
+            name: selectedIP.name,
+            digitalHuman: profile,
+          },
+          avatarPath: profile.avatarPath || digitalHumanConfig.avatarPath,
+          roleName: profile.roleName,
+          voiceId: profile.voiceId,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+
+      const payload = (await res.json()) as { reportPath?: string; count?: number };
+      setStatus(`已启动 ${payload.count ?? Math.min(20, Math.max(1, count))} 段数字人压测，报告生成后会自动显示`);
+      window.setTimeout(() => {
+        void loadDigitalHumanBenchmarkReports();
+      }, 2500);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "未知错误";
+      setStatus("数字人压测启动失败: " + message);
+    } finally {
+      setDigitalHumanBenchmarkStarting(false);
     }
   };
 
@@ -4038,7 +4089,7 @@ export default function Home() {
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold text-white/55">数字人压测</div>
-                  <div className="mt-0.5 text-[10px] text-white/35">读取本地 benchmark 报告，不会启动长任务</div>
+                  <div className="mt-0.5 text-[10px] text-white/35">可用当前 TTS 音频启动本地 Provider 压测</div>
                 </div>
                 {latestDigitalHumanBenchmark ? (
                   <span
@@ -4054,6 +4105,15 @@ export default function Home() {
                   </span>
                 )}
               </div>
+              <button
+                className="mb-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-semibold text-white/70 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={digitalHumanBenchmarkStarting || !ttsPreview?.clips.length || !digitalHumanConfig.endpoint}
+                onClick={handleStartDigitalHumanBenchmark}
+                type="button"
+              >
+                <RefreshCcw className={`h-3.5 w-3.5 ${digitalHumanBenchmarkStarting ? "animate-spin" : ""}`} />
+                {digitalHumanBenchmarkStarting ? "启动中..." : "用首段 TTS 启动压测"}
+              </button>
 
               {latestDigitalHumanBenchmark ? (
                 <div className="rounded-xl border border-white/8 bg-black/15 p-3">
