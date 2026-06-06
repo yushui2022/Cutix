@@ -507,9 +507,16 @@ worker_events   — Worker 日志
 - 数字人系统设置里新增“启动 Duix Adapter”和“启动 MuseTalk 服务”按钮，减少本地部署时反复开终端的操作。
 - 生产就绪摘要不再只看“是否填写 endpoint”，而是把当前 IP 的数字人预检结果纳入状态；没有完成预检时显示“注意”，生成前仍会强制执行预检。
 
+### 已完成：Duix Adapter 结果归档增强
+
+- Duix 查询结果不再只读取少量固定字段，adapter 会递归识别 `videoUrl/video_path/resultUrl/downloadUrl/outputPath/filePath/url/path` 等常见结果字段。
+- Duix 返回 HTTP/HTTPS 结果地址时，默认下载归档到 Cutix 本地 `/output/digital-human/duix-adapter/`，让 Remotion 和 FFmpeg 后处理拿到稳定本地资源。
+- 新增 `DUIX_ARCHIVE_REMOTE_RESULT`、`DUIX_RESULT_DOWNLOAD_TIMEOUT_MS` 和 `DUIX_ALLOW_UNRESOLVED_RESULT` 环境变量，用于控制远程结果归档、下载超时和调试期路径透传。
+- 如果 Duix 返回“已完成”状态但没有可识别的视频结果，adapter 会明确返回失败，避免成片阶段才出现空视频错误。
+
 ### 下一步
 
 - 跑通 `Cutix -> Duix/HeyGem 本地服务 -> /api/digital-human -> Remotion -> MP4` 的真实样片，不再接受无声占位或纯 demo 输出。
 - 准备客户可授权的绿幕半身数字人素材，验证 alpha/绿幕抠像进入 Remotion 的稳定性。
-- 继续完善 Duix Adapter 字段映射和输出归档，确保不同 Duix/HeyGem 返回格式都能稳定转成 Cutix 的 `videoUrl/statusUrl`。
+- 用真实 Duix/HeyGem 返回样本继续补齐 `duix-adapter` 字段兼容，尤其是原生任务状态、结果路径和错误码。
 - 继续推进 Redis/BullMQ 或等价队列化实现，把当前本地文件队列升级为可并发、可重试、可恢复的生产队列。

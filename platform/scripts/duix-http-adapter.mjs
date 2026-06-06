@@ -209,29 +209,148 @@ function nestedPayload(payload) {
   return payload && typeof payload === "object" ? payload : {};
 }
 
+const resultKeys = [
+  "alphaVideoUrl",
+  "alpha_video_url",
+  "videoUrl",
+  "video_url",
+  "videoPath",
+  "video_path",
+  "resultUrl",
+  "result_url",
+  "resultPath",
+  "result_path",
+  "downloadUrl",
+  "download_url",
+  "outputUrl",
+  "output_url",
+  "outputPath",
+  "output_path",
+  "filePath",
+  "file_path",
+  "file",
+  "url",
+  "path",
+  "output",
+  "result",
+];
+
+const statusKeys = [
+  "status",
+  "state",
+  "taskStatus",
+  "task_status",
+  "jobStatus",
+  "job_status",
+  "statusCode",
+  "status_code",
+];
+
+const progressKeys = ["progress", "percent", "percentage", "ratio"];
+const errorKeys = ["error", "message", "msg", "reason", "detail"];
+
+function isObject(value) {
+  return typeof value === "object" && value !== null;
+}
+
+function stringFromValue(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function findValueByKeys(payload, keys, maxDepth = 5) {
+  const queue = [{ value: payload, depth: 0 }];
+  const seen = new Set();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || !isObject(current.value) || current.depth > maxDepth || seen.has(current.value)) continue;
+    seen.add(current.value);
+
+    if (Array.isArray(current.value)) {
+      for (const item of current.value) queue.push({ value: item, depth: current.depth + 1 });
+      continue;
+    }
+
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(current.value, key)) continue;
+      const candidate = current.value[key];
+      if (candidate === undefined || candidate === null) continue;
+      if (typeof candidate === "string" && !candidate.trim()) continue;
+      return candidate;
+    }
+
+    for (const value of Object.values(current.value)) {
+      if (isObject(value)) queue.push({ value, depth: current.depth + 1 });
+    }
+  }
+
+  return undefined;
+}
+
+function isLikelyResultReference(value) {
+  const text = stringFromValue(value);
+  if (!text) return false;
+
+  const normalized = text.toLowerCase();
+  if (["ok", "true", "success", "succeed", "completed", "complete", "done", "finished"].includes(normalized)) {
+    return false;
+  }
+
+  return (
+    isRemoteUrl(text)
+    || text.startsWith("/output/")
+    || /\.(mp4|webm|mov|mkv|avi|m3u8)(\?|$)/iu.test(text)
+    || /[\\/]/u.test(text)
+  );
+}
+
 function resultField(payload) {
   const data = nestedPayload(payload);
-  const keys = ["videoUrl", "video_url", "alphaVideoUrl", "alpha_video_url", "result", "url", "path", "output", "output_url"];
-  for (const key of keys) {
+  for (const key of resultKeys) {
     const value = typeof data[key] === "string" && data[key].trim()
       ? data[key].trim()
       : typeof payload[key] === "string" && payload[key].trim()
         ? payload[key].trim()
         : "";
-    if (value) return value;
+    if (isLikelyResultReference(value)) return value;
   }
-  return "";
+
+  const value = stringFromValue(findValueByKeys(payload, resultKeys));
+  return isLikelyResultReference(value) ? value : "";
+}
+
+function normalizeStatusValue(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return value;
+
+  const normalized = value.trim().toLowerCase();
+  if (/^-?\d+$/u.test(normalized)) return Number(normalized);
+  return normalized;
 }
 
 function statusField(payload) {
   const data = nestedPayload(payload);
-  const value = data.status ?? payload.status ?? data.state ?? payload.state;
-  return typeof value === "string" ? value.trim().toLowerCase() : value;
+  const value = findValueByKeys([data, payload], statusKeys, 3);
+  return normalizeStatusValue(value);
 }
 
 function errorField(payload) {
   const data = nestedPayload(payload);
-  return data.error || payload.error || data.message || payload.message || data.msg || payload.msg || "Duix job failed";
+  const value = findValueByKeys([data, payload], errorKeys, 4);
+  return stringFromValue(value) || "Duix job failed";
+}
+
+function progressField(payload) {
+  const data = nestedPayload(payload);
+  return findValueByKeys([data, payload], progressKeys, 4);
+}
+
+function completedStatus(value) {
+  return value === 2 || ["completed", "complete", "success", "succeed", "succeeded", "done", "finished", "finish"].includes(value);
+}
+
+function failedStatus(value) {
+  return value === -1 || value === 3 || ["failed", "failure", "error", "canceled", "cancelled"].includes(value);
 }
 
 function mapContainerResultToHost(value) {
@@ -251,15 +370,55 @@ function isRemoteUrl(value) {
   return /^https?:\/\//i.test(value);
 }
 
+function remoteResultExtension(remoteUrl, contentType) {
+  try {
+    const extension = path.extname(new URL(remoteUrl).pathname);
+    if (extension) return extension;
+  } catch {
+    // Fall back to content-type.
+  }
+
+  const normalizedType = String(contentType || "").toLowerCase();
+  if (normalizedType.includes("webm")) return ".webm";
+  if (normalizedType.includes("quicktime")) return ".mov";
+  if (normalizedType.includes("mpeg")) return ".mp4";
+  return ".mp4";
+}
+
+async function archiveRemoteResult(remoteUrl, code) {
+  const shouldArchive = process.env.DUIX_ARCHIVE_REMOTE_RESULT !== "0";
+  if (!shouldArchive) return remoteUrl;
+
+  const timeoutMs = numberEnv("DUIX_RESULT_DOWNLOAD_TIMEOUT_MS", 10 * 60 * 1000);
+  const response = await fetch(remoteUrl, {
+    method: "GET",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to download Duix result ${remoteUrl}: HTTP ${response.status}`);
+  }
+
+  await fs.mkdir(outputDir, { recursive: true });
+  const extension = remoteResultExtension(remoteUrl, response.headers.get("content-type"));
+  const publicName = `${sanitizeId(code)}${extension}`;
+  const publicPath = path.join(outputDir, publicName);
+  await fs.writeFile(publicPath, Buffer.from(await response.arrayBuffer()));
+  return `/output/digital-human/duix-adapter/${publicName}`;
+}
+
 async function copyResultToPublic(resultValue, code) {
-  if (resultValue.startsWith("/output/") || isRemoteUrl(resultValue)) return resultValue;
+  if (resultValue.startsWith("/output/")) return resultValue;
+  if (isRemoteUrl(resultValue)) return archiveRemoteResult(resultValue, code);
 
   const mappedHostPath = mapContainerResultToHost(resultValue);
   const candidatePath = mappedHostPath || resultValue;
   try {
     await fs.access(candidatePath);
   } catch {
-    return resultValue;
+    if (process.env.DUIX_ALLOW_UNRESOLVED_RESULT === "1") return resultValue;
+    throw new Error(
+      `Duix result is not readable from Cutix: ${resultValue}. Configure DUIX_RESULT_HOST_DIR/DUIX_RESULT_CONTAINER_DIR if Duix returns a container path.`,
+    );
   }
 
   await fs.mkdir(outputDir, { recursive: true });
@@ -316,6 +475,13 @@ async function queryDuixJob(code) {
   const rawResult = resultField(payload);
   if (rawResult) {
     const videoUrl = await copyResultToPublic(rawResult, code);
+    await writeJob(code, {
+      ...job,
+      lastQueryPayload: payload,
+      rawResult,
+      videoUrl,
+      completedAt: new Date().toISOString(),
+    });
     return {
       status: "completed",
       jobId: code,
@@ -328,7 +494,7 @@ async function queryDuixJob(code) {
   }
 
   const status = statusField(payload);
-  if (status === 3 || ["failed", "failure", "error", "canceled", "cancelled"].includes(status)) {
+  if (failedStatus(status)) {
     return {
       status: "failed",
       jobId: code,
@@ -336,13 +502,21 @@ async function queryDuixJob(code) {
     };
   }
 
+  if (completedStatus(status)) {
+    return {
+      status: "failed",
+      jobId: code,
+      error: "Duix reported completion but no result video field was found",
+      rawStatus: status,
+    };
+  }
+
   return {
-    status: status === 2 || ["completed", "complete", "success", "done"].includes(status)
-      ? "completed"
-      : "running",
+    status: "running",
     jobId: code,
     provider: "duix-adapter",
-    progress: nestedPayload(payload).progress ?? payload.progress,
+    progress: progressField(payload),
+    rawStatus: status,
   };
 }
 

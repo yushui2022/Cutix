@@ -196,3 +196,8 @@ http://127.0.0.1:8383/easy/query
 | `DUIX_AUDIO_HOST_DIR` / `DUIX_AUDIO_CONTAINER_DIR` | 空 | 需要把 Cutix 音频复制到 Duix Docker 映射目录时使用 |
 | `DUIX_VIDEO_HOST_DIR` / `DUIX_VIDEO_CONTAINER_DIR` | 空 | 需要把角色视频复制到 Duix Docker 映射目录时使用 |
 | `DUIX_RESULT_HOST_DIR` / `DUIX_RESULT_CONTAINER_DIR` | 空 | Duix 返回容器内结果路径时，用于映射回宿主机并复制到 Cutix 输出目录 |
+| `DUIX_ARCHIVE_REMOTE_RESULT` | `1` | Duix 返回 HTTP/HTTPS 结果 URL 时，默认下载归档到 Cutix 输出目录；设为 `0` 时直接透传远程 URL |
+| `DUIX_RESULT_DOWNLOAD_TIMEOUT_MS` | `600000` | 下载 Duix 远程结果视频的超时时间 |
+| `DUIX_ALLOW_UNRESOLVED_RESULT` | 空 | 仅调试用；设为 `1` 时允许透传 Cutix 不可读的结果路径，生产不建议开启 |
+
+adapter 查询 Duix 结果时会尽量兼容常见字段名，例如 `videoUrl`、`video_url`、`videoPath`、`resultUrl`、`downloadUrl`、`outputPath`、`filePath` 等；如果 Duix 返回嵌套对象或数组，adapter 也会递归查找这些字段。只有 URL、本地路径、`/output/...` 或带视频扩展名的字符串才会被当成成片结果，`result: "success"` 这类状态文本不会误判为视频地址。Duix 返回“已完成”但没有视频字段时，adapter 会明确返回失败；Duix 返回容器内结果路径但 Cutix 无法读取时，也会明确提示配置 `DUIX_RESULT_HOST_DIR/DUIX_RESULT_CONTAINER_DIR`，方便定位是 Duix 输出映射问题，而不是 Remotion 合成问题。
