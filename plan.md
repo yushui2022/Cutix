@@ -60,6 +60,7 @@
 52. 已把本地数字人 benchmark 纳入一键生产前的生产就绪摘要：没有报告会提示“未跑本地压测”，有报告会显示通过数和平均耗时，作为生产风险提示但不阻断开发阶段的一键生成。
 53. 已把默认本地数字人服务健康状态纳入一键生产前的阻断摘要：当数字人 HTTP endpoint 命中 Duix Adapter 或 MuseTalk Service 默认本地地址但服务离线时，生产就绪摘要会直接显示阻断项，避免用户在配置已保存但服务未启动时提交长链路任务。
 54. 已新增 Duix Adapter 字段解析自测：`npm run digital-human:duix-selftest` 会覆盖 top-level、嵌套 `data/result`、数组结果、远程 URL、本地/容器路径、完成但无视频字段、失败状态和进度字段，防止后续改动把 Duix 返回结果识别逻辑改坏。
+55. 已新增本地视觉打标参考服务：`npm run vision:analyzer-service` 会启动 `http://127.0.0.1:8890/analyze`，接入本地 OpenAI-compatible 视觉模型；`npm run vision:analyzer-selftest` 覆盖 JSON 解析、标签归一化、元数据 fallback 和关键帧路径白名单。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 
@@ -67,7 +68,7 @@
 2. 并行上传并绑定真实绿幕 avatar 素材，在本机或客户 GPU 服务器跑通 `CosyVoice -> musetalk-service -> /api/digital-human -> Remotion` 的自研保底链路，并同样跑 20 scene benchmark。
 3. 完成本地数字人部署包：整理 Duix、MuseTalk、CosyVoice、FFmpeg、NVIDIA 驱动/CUDA、模型权重路径、健康检查和失败重试脚本，让客户服务器可复现部署。
 4. 把进程内后台任务升级为真正独立 Worker 队列：Render Worker 从 Next.js API Route 中拆出，接入 Redis/BullMQ，多 Worker 并发渲染，支持失败重试、取消、超时和 Worker 监控。
-5. 给本地视觉打标服务补一个参考实现或适配器，先支持 Qwen-VL/Ollama/vLLM 任选一条本地模型链路。
+5. 部署并验证真实本地视觉模型链路：用 `vision:analyzer-service` 接 Ollama/vLLM/Qwen-VL/InternVL，批量分析现有素材关键帧，确认标签质量、耗时和失败恢复策略。
 6. 增加 IP/品牌、标签体系、模板包的后台管理页面。
 
 ## 1. 产品形态

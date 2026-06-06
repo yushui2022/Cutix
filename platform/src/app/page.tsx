@@ -2519,7 +2519,7 @@ export default function Home() {
                   <input
                     className={fieldClass}
                     onChange={(event) => setVisionDraft({ ...visionDraft, endpoint: event.target.value })}
-                    placeholder="http://127.0.0.1:8791/analyze"
+                    placeholder="http://127.0.0.1:8890/analyze"
                     value={visionDraft.endpoint}
                   />
                 </label>
