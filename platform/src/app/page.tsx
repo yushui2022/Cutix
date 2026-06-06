@@ -722,6 +722,10 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
+function normalizeLocalEndpoint(value: string) {
+  return value.trim().replace(/\/+$/, "").replace(/^http:\/\/localhost(?=[:/]|$)/i, "http://127.0.0.1");
+}
+
 function assetLocalAvatarPath(asset: Asset) {
   return asset.localPath?.trim() ?? "";
 }
@@ -2253,6 +2257,16 @@ export default function Home() {
   const storageTotalBytes = workerStatus?.storage?.totalBytes ?? 0;
   const storageWarnBytes = 20 * 1024 * 1024 * 1024;
   const latestDigitalHumanBenchmark = digitalHumanBenchmarkReports[0];
+  const normalizedDigitalHumanEndpoint = normalizeLocalEndpoint(digitalHumanConfig.endpoint);
+  const configuredLocalDigitalHumanService =
+    digitalHumanConfig.provider === "http-api"
+      ? digitalHumanServiceStatuses.find(
+        (service) => normalizeLocalEndpoint(service.generateEndpoint) === normalizedDigitalHumanEndpoint,
+      )
+      : undefined;
+  const configuredLocalDigitalHumanServiceOffline = Boolean(
+    configuredLocalDigitalHumanService && !configuredLocalDigitalHumanService.healthy,
+  );
   const benchmarkReadinessStatus: DigitalHumanReadinessCheck["status"] = latestDigitalHumanBenchmark
     ? latestDigitalHumanBenchmark.summary.failed > 0 || latestDigitalHumanBenchmark.summary.passed === 0
       ? "warn"
@@ -2272,6 +2286,8 @@ export default function Home() {
     currentDigitalHumanReadiness?.checks.filter((item) => item.status === "warn").length ?? 0;
   const digitalHumanReadinessStatus: DigitalHumanReadinessCheck["status"] = !productionDigitalHumanReady
     ? "fail"
+    : configuredLocalDigitalHumanServiceOffline
+      ? "fail"
     : currentDigitalHumanReadiness
       ? currentDigitalHumanReadiness.productionReady
         ? "pass"
@@ -2279,6 +2295,8 @@ export default function Home() {
       : "warn";
   const digitalHumanReadinessDetail = !productionDigitalHumanReady
     ? "未接本地生产服务"
+    : configuredLocalDigitalHumanServiceOffline && configuredLocalDigitalHumanService
+      ? `${configuredLocalDigitalHumanService.label} 离线，请先启动本地服务`
     : currentDigitalHumanReadiness
       ? currentDigitalHumanReadiness.productionReady
         ? `预检通过 · ${new Date(currentDigitalHumanReadiness.generatedAt).toLocaleTimeString("zh-CN", { hour12: false })}`

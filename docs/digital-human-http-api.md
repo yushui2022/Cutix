@@ -116,6 +116,7 @@ Cutix 会按以下环境变量轮询：
 - 含测试占位的数字人结果会标记 `productionReady = false`，前端禁止提交最终成片任务。
 - 数字人接入检查会校验本机绝对 `avatarPath` 是否可读取；远程 URL 或非绝对路径会保留为提醒，由具体数字人服务自行解析。
 - 本地 HTTP 数字人服务可只返回普通本地 MP4，由 Cutix 统一做 chromakey 透明通道兜底；生产中仍建议服务端尽量返回干净绿幕或原生 alpha。
+- 当系统设置里的 HTTP endpoint 命中默认 `Duix Adapter` 或 `MuseTalk Service` 本地地址时，Web 生产就绪摘要会读取 `/api/digital-human-service/status`；服务离线会被标记为阻断项，不能只因为 endpoint 已保存就判断为可生产。
 
 ## 5. 推荐本地实现
 
