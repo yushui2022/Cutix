@@ -772,6 +772,47 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
+function parseTimestampMs(value?: string) {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function averageDurationMs(values: number[]) {
+  if (values.length === 0) return null;
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function percentileDurationMs(values: number[], percentile: number) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * percentile) - 1));
+  return sorted[index];
+}
+
+function renderTaskTiming(task: RenderTask, nowMs = Date.now()) {
+  const startMs = parseTimestampMs(task.createdAt);
+  if (startMs === null) return null;
+
+  const finished = task.status === "completed" || task.status === "failed" || task.status === "canceled";
+  const endMs = finished
+    ? parseTimestampMs(task.completedAt) ?? parseTimestampMs(task.updatedAt)
+    : nowMs;
+  if (endMs === null || endMs < startMs) return null;
+
+  const label = task.status === "queued"
+    ? "等待"
+    : task.status === "running"
+      ? "历时"
+      : task.status === "completed"
+        ? "总耗时"
+        : task.status === "failed"
+          ? "失败耗时"
+          : "取消前";
+
+  return { label, valueMs: endMs - startMs };
+}
+
 function normalizeLocalEndpoint(value: string) {
   return value.trim().replace(/\/+$/, "").replace(/^http:\/\/localhost(?=[:/]|$)/i, "http://127.0.0.1");
 }
@@ -2380,6 +2421,21 @@ export default function Home() {
   const queueActiveCount = (workerStatus?.queue.queued ?? 0) + (workerStatus?.queue.running ?? 0);
   const storageTotalBytes = workerStatus?.storage?.totalBytes ?? 0;
   const storageWarnBytes = 20 * 1024 * 1024 * 1024;
+  const taskMetricsNowMs = Date.now();
+  const completedRenderTaskDurations = renderTasks
+    .filter((task) => task.status === "completed")
+    .map((task) => renderTaskTiming(task, taskMetricsNowMs)?.valueMs)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const recentAverageRenderDurationMs = averageDurationMs(completedRenderTaskDurations);
+  const recentP95RenderDurationMs = percentileDurationMs(completedRenderTaskDurations, 0.95);
+  const latestCompletedRenderTask = renderTasks.find((task) => task.status === "completed");
+  const latestCompletedRenderTaskTiming = latestCompletedRenderTask
+    ? renderTaskTiming(latestCompletedRenderTask, taskMetricsNowMs)
+    : null;
+  const failedRenderTaskCount = workerStatus?.queue.failed ?? renderTasks.filter((task) => task.status === "failed").length;
+  const renderDurationSampleText = completedRenderTaskDurations.length > 0
+    ? `均耗 ${formatDuration(recentAverageRenderDurationMs ?? 0)}`
+    : "暂无完成样本";
   const latestDigitalHumanBenchmark = digitalHumanBenchmarkReports[0];
   const normalizedDigitalHumanEndpoint = normalizeLocalEndpoint(digitalHumanConfig.endpoint);
   const configuredLocalDigitalHumanService =
@@ -2475,7 +2531,9 @@ export default function Home() {
       key: "worker",
       label: "Worker",
       status: healthyWorkerCount > 0 ? "pass" : "warn",
-      detail: healthyWorkerCount > 0 ? `${healthyWorkerCount} 个在线，队列 ${queueActiveCount}` : "未检测到独立 Worker",
+      detail: healthyWorkerCount > 0
+        ? `${healthyWorkerCount} 个在线，队列 ${queueActiveCount}，${renderDurationSampleText}`
+        : `未检测到独立 Worker，${renderDurationSampleText}`,
     },
     {
       key: "batch",
@@ -4497,8 +4555,42 @@ export default function Home() {
                 {currentRenderTask && (
                   <div className="mt-1 text-cyan-100/75">
                     {currentRenderTaskStatusLabels[currentRenderTask.status]} · {currentRenderTask.stage}
+                    {renderTaskTiming(currentRenderTask, taskMetricsNowMs) && (
+                      <span>
+                        {" · "}
+                        {renderTaskTiming(currentRenderTask, taskMetricsNowMs)?.label}{" "}
+                        {formatDuration(renderTaskTiming(currentRenderTask, taskMetricsNowMs)?.valueMs ?? 0)}
+                      </span>
+                    )}
                   </div>
                 )}
+              </div>
+            )}
+            {renderTasks.length > 0 && (
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3">
+                  <div className="text-[10px] text-white/35">最近均耗</div>
+                  <div className="mt-1 text-sm font-semibold text-white">
+                    {recentAverageRenderDurationMs === null ? "--" : formatDuration(recentAverageRenderDurationMs)}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-white/35">{completedRenderTaskDurations.length} 个样本</div>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3">
+                  <div className="text-[10px] text-white/35">P95 总耗时</div>
+                  <div className="mt-1 text-sm font-semibold text-white">
+                    {recentP95RenderDurationMs === null ? "--" : formatDuration(recentP95RenderDurationMs)}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-white/35">
+                    最新 {latestCompletedRenderTaskTiming ? formatDuration(latestCompletedRenderTaskTiming.valueMs) : "--"}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3">
+                  <div className="text-[10px] text-white/35">失败任务</div>
+                  <div className={`mt-1 text-sm font-semibold ${failedRenderTaskCount > 0 ? "text-amber-100" : "text-white"}`}>
+                    {failedRenderTaskCount}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-white/35">队列台账</div>
+                </div>
               </div>
             )}
             {workerStatus?.storage && (
@@ -4678,53 +4770,67 @@ export default function Home() {
             {renderTasks.length > 0 && (
               <div className="mt-4 space-y-2">
                 <div className="text-xs font-semibold text-white/55">最近生成任务</div>
-                {renderTasks.slice(0, 3).map((task) => (
-                  <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3" key={task.id}>
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <span className="truncate text-xs font-semibold text-white">{task.brandName}</span>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${renderTaskStatusStyles[task.status]}`}
-                      >
-                        {renderTaskStatusLabels[task.status]}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-white/45">
-                      {task.platform} · {task.templateName} · {task.createdAt.slice(5, 16).replace("T", " ")}
-                    </div>
-                    <div className="mt-1 line-clamp-1 text-[11px] text-white/55">{task.stage}</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {task.previewUrl && (
-                        <a
-                          className="inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white"
-                          href={task.previewUrl}
-                          rel="noreferrer"
-                          target="_blank"
+                {renderTasks.slice(0, 3).map((task) => {
+                  const taskTiming = renderTaskTiming(task, taskMetricsNowMs);
+                  return (
+                    <div className="rounded-xl border border-white/8 bg-white/[0.025] p-3" key={task.id}>
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold text-white">{task.brandName}</span>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${renderTaskStatusStyles[task.status]}`}
                         >
-                          查看预览
-                        </a>
+                          {renderTaskStatusLabels[task.status]}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-white/45">
+                        {task.platform} · {task.templateName} · {task.createdAt.slice(5, 16).replace("T", " ")}
+                        {taskTiming && (
+                          <span>
+                            {" · "}
+                            {taskTiming.label} {formatDuration(taskTiming.valueMs)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 line-clamp-1 text-[11px] text-white/55">{task.stage}</div>
+                      {task.error && (
+                        <div className="mt-1 line-clamp-2 rounded-lg border border-red-300/15 bg-red-300/10 px-2 py-1.5 text-[10px] leading-4 text-red-100/80">
+                          {task.error}
+                        </div>
                       )}
-                      {task.status === "queued" && (
-                        <button
-                          className="inline-flex rounded-lg border border-amber-300/20 px-2 py-1 text-[11px] font-semibold text-amber-100/75 transition hover:bg-amber-300/10 hover:text-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled={cancelingTaskId === task.id}
-                          onClick={() => void handleCancelRenderTask(task.id)}
-                          type="button"
-                        >
-                          {cancelingTaskId === task.id ? "取消中..." : "取消"}
-                        </button>
-                      )}
-                      {task.payloadStored && (task.status === "failed" || task.status === "completed") && (
-                        <button
-                          className="inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled={retryingTaskId === task.id}
-                          onClick={() => void handleRetryRenderTask(task.id)}
-                          type="button"
-                        >
-                          {retryingTaskId === task.id ? "提交中..." : task.status === "failed" ? "重试" : "重渲染"}
-                        </button>
-                      )}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {task.previewUrl && (
+                          <a
+                            className="inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white"
+                            href={task.previewUrl}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            查看预览
+                          </a>
+                        )}
+                        {task.status === "queued" && (
+                          <button
+                            className="inline-flex rounded-lg border border-amber-300/20 px-2 py-1 text-[11px] font-semibold text-amber-100/75 transition hover:bg-amber-300/10 hover:text-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={cancelingTaskId === task.id}
+                            onClick={() => void handleCancelRenderTask(task.id)}
+                            type="button"
+                          >
+                            {cancelingTaskId === task.id ? "取消中..." : "取消"}
+                          </button>
+                        )}
+                        {task.payloadStored && (task.status === "failed" || task.status === "completed") && (
+                          <button
+                            className="inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] font-semibold text-white/65 transition hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={retryingTaskId === task.id}
+                            onClick={() => void handleRetryRenderTask(task.id)}
+                            type="button"
+                          >
+                            {retryingTaskId === task.id ? "提交中..." : task.status === "failed" ? "重试" : "重渲染"}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             <div className="mt-4 grid grid-cols-1 gap-2">
