@@ -57,6 +57,7 @@
 49. 已新增本地数字人连续生成压测脚本：`npm run digital-human:benchmark` 会按 Cutix 数字人 HTTP 契约连续提交多个 scene，记录 Provider 健康检查、成功率、平均耗时、P95、输出文件大小和逐 scene 错误，报告写入 `platform/data/digital-human/benchmarks/`；详见 `docs/digital-human-benchmark.md`。
 50. 已把本地数字人 benchmark 报告接入 Web 后台：`/api/digital-human-benchmark` 会读取最近报告，首页任务状态卡展示最近一次成功率、平均耗时、P95、输出体积和健康状态，让客户/运营人员不用进终端也能看到本地数字人稳定性证据。
 51. 已新增 Web 端启动数字人 benchmark：当页面已有 TTS 音频且数字人 HTTP endpoint 已保存时，任务状态卡可用首段 TTS 启动后台 benchmark 子进程；Web 模式只接受 Cutix `/output` 或 `/uploads` 音频，避免任意读取本机文件。
+52. 已把本地数字人 benchmark 纳入一键生产前的生产就绪摘要：没有报告会提示“未跑本地压测”，有报告会显示通过数和平均耗时，作为生产风险提示但不阻断开发阶段的一键生成。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 

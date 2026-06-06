@@ -2119,6 +2119,14 @@ export default function Home() {
   const storageTotalBytes = workerStatus?.storage?.totalBytes ?? 0;
   const storageWarnBytes = 20 * 1024 * 1024 * 1024;
   const latestDigitalHumanBenchmark = digitalHumanBenchmarkReports[0];
+  const benchmarkReadinessStatus: DigitalHumanReadinessCheck["status"] = latestDigitalHumanBenchmark
+    ? latestDigitalHumanBenchmark.summary.failed > 0 || latestDigitalHumanBenchmark.summary.passed === 0
+      ? "warn"
+      : "pass"
+    : "warn";
+  const benchmarkReadinessDetail = latestDigitalHumanBenchmark
+    ? `${latestDigitalHumanBenchmark.summary.passed}/${latestDigitalHumanBenchmark.summary.count} · 平均 ${formatDuration(latestDigitalHumanBenchmark.summary.averageElapsedMs)}`
+    : "未跑本地压测";
   const productionReadinessItems: Array<{
     key: string;
     label: string;
@@ -2130,6 +2138,12 @@ export default function Home() {
       label: "数字人",
       status: productionDigitalHumanReady ? "pass" : "fail",
       detail: productionDigitalHumanReady ? digitalHumanConnectionStatus : "未接本地生产服务",
+    },
+    {
+      key: "digital-human-benchmark",
+      label: "压测",
+      status: benchmarkReadinessStatus,
+      detail: benchmarkReadinessDetail,
     },
     {
       key: "assets",
