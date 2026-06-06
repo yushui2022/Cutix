@@ -59,6 +59,7 @@
 51. 已新增 Web 端启动数字人 benchmark：当页面已有 TTS 音频且数字人 HTTP endpoint 已保存时，任务状态卡可用首段 TTS 启动后台 benchmark 子进程；Web 模式只接受 Cutix `/output` 或 `/uploads` 音频，避免任意读取本机文件。
 52. 已把本地数字人 benchmark 纳入一键生产前的生产就绪摘要：没有报告会提示“未跑本地压测”，有报告会显示通过数和平均耗时，作为生产风险提示但不阻断开发阶段的一键生成。
 53. 已把默认本地数字人服务健康状态纳入一键生产前的阻断摘要：当数字人 HTTP endpoint 命中 Duix Adapter 或 MuseTalk Service 默认本地地址但服务离线时，生产就绪摘要会直接显示阻断项，避免用户在配置已保存但服务未启动时提交长链路任务。
+54. 已新增 Duix Adapter 字段解析自测：`npm run digital-human:duix-selftest` 会覆盖 top-level、嵌套 `data/result`、数组结果、远程 URL、本地/容器路径、完成但无视频字段、失败状态和进度字段，防止后续改动把 Duix 返回结果识别逻辑改坏。
 
 当前仍是 MVP 骨架，下一步应优先推进：
 

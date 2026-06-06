@@ -218,3 +218,12 @@ http://127.0.0.1:8383/easy/query
 | `DUIX_ALLOW_UNRESOLVED_RESULT` | 空 | 仅调试用；设为 `1` 时允许透传 Cutix 不可读的结果路径，生产不建议开启 |
 
 adapter 查询 Duix 结果时会尽量兼容常见字段名，例如 `videoUrl`、`video_url`、`videoPath`、`resultUrl`、`downloadUrl`、`outputPath`、`filePath` 等；如果 Duix 返回嵌套对象或数组，adapter 也会递归查找这些字段。只有 URL、本地路径、`/output/...` 或带视频扩展名的字符串才会被当成成片结果，`result: "success"` 这类状态文本不会误判为视频地址。Duix 返回“已完成”但没有视频字段时，adapter 会明确返回失败；Duix 返回容器内结果路径但 Cutix 无法读取时，也会明确提示配置 `DUIX_RESULT_HOST_DIR/DUIX_RESULT_CONTAINER_DIR`，方便定位是 Duix 输出映射问题，而不是 Remotion 合成问题。
+
+改动 adapter 字段兼容逻辑后，应先跑本地解析自测：
+
+```powershell
+cd platform
+npm run digital-human:duix-selftest
+```
+
+该自测只验证 Cutix 对 Duix 返回结构的识别，不会访问真实 Duix 服务，也不能替代 `digital-human:benchmark` 的连续生成稳定性压测。

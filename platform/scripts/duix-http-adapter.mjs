@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 const platformRoot = process.cwd();
 const outputDir = path.join(platformRoot, "public", "output", "digital-human", "duix-adapter");
@@ -304,6 +305,34 @@ function isLikelyResultReference(value) {
   );
 }
 
+function findResultReferenceByKeys(payload, keys, maxDepth = 5) {
+  const queue = [{ value: payload, depth: 0 }];
+  const seen = new Set();
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || !isObject(current.value) || current.depth > maxDepth || seen.has(current.value)) continue;
+    seen.add(current.value);
+
+    if (Array.isArray(current.value)) {
+      for (const item of current.value) queue.push({ value: item, depth: current.depth + 1 });
+      continue;
+    }
+
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(current.value, key)) continue;
+      const candidate = current.value[key];
+      if (isLikelyResultReference(candidate)) return stringFromValue(candidate);
+    }
+
+    for (const value of Object.values(current.value)) {
+      if (isObject(value)) queue.push({ value, depth: current.depth + 1 });
+    }
+  }
+
+  return "";
+}
+
 function resultField(payload) {
   const data = nestedPayload(payload);
   for (const key of resultKeys) {
@@ -315,8 +344,7 @@ function resultField(payload) {
     if (isLikelyResultReference(value)) return value;
   }
 
-  const value = stringFromValue(findValueByKeys(payload, resultKeys));
-  return isLikelyResultReference(value) ? value : "";
+  return findResultReferenceByKeys(payload, resultKeys);
 }
 
 function normalizeStatusValue(value) {
@@ -617,8 +645,20 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(port, host, () => {
-  console.log(`[duix-adapter] listening at http://${host}:${port}`);
-  console.log(`[duix-adapter] generate endpoint http://${host}:${port}/generate`);
-  console.log(`[duix-adapter] forwarding to ${duixSubmitUrl}`);
-});
+export {
+  completedStatus,
+  errorField,
+  failedStatus,
+  isLikelyResultReference,
+  progressField,
+  resultField,
+  statusField,
+};
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  server.listen(port, host, () => {
+    console.log(`[duix-adapter] listening at http://${host}:${port}`);
+    console.log(`[duix-adapter] generate endpoint http://${host}:${port}/generate`);
+    console.log(`[duix-adapter] forwarding to ${duixSubmitUrl}`);
+  });
+}

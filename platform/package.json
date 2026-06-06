@@ -10,6 +10,7 @@
     "digital-human:benchmark": "node scripts/digital-human-benchmark.mjs",
     "digital-human:musetalk-service": "node scripts/musetalk-http-service.mjs",
     "digital-human:duix-adapter": "node scripts/duix-http-adapter.mjs",
+    "digital-human:duix-selftest": "node scripts/duix-adapter-selftest.mjs",
     "render:local-assets": "node scripts/render-existing-assets-video.mjs",
     "worker:render": "tsx src/workers/render-worker.ts",
     "worker:render:once": "tsx src/workers/render-worker.ts --once",
