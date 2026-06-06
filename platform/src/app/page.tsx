@@ -111,6 +111,26 @@ type VisionConfigDraft = Omit<PublicVisionConfig, "apiKeySet" | "apiKeyPreview">
 type DigitalHumanProvider = "placeholder" | "musetalk-cli" | "http-api" | "heygen-api";
 type LocalDigitalHumanService = "duix-adapter" | "musetalk-service";
 
+type LocalDigitalHumanServiceStatus = {
+  service: LocalDigitalHumanService;
+  label: string;
+  generateEndpoint: string;
+  healthEndpoint: string;
+  healthy: boolean;
+  state?: {
+    pid?: number;
+    script?: string;
+    startedAt?: string;
+  } | null;
+  paths: {
+    statePath: string;
+    stdoutPath: string;
+    stderrPath: string;
+  };
+  stdoutTail: string;
+  stderrTail: string;
+};
+
 type PublicDigitalHumanConfig = {
   provider: DigitalHumanProvider;
   endpoint: string;
@@ -758,6 +778,7 @@ export default function Home() {
   const [digitalHumanTesting, setDigitalHumanTesting] = useState(false);
   const [digitalHumanTestResult, setDigitalHumanTestResult] = useState<DigitalHumanReadinessResult | null>(null);
   const [digitalHumanServiceStarting, setDigitalHumanServiceStarting] = useState<LocalDigitalHumanService | "">("");
+  const [digitalHumanServiceStatuses, setDigitalHumanServiceStatuses] = useState<LocalDigitalHumanServiceStatus[]>([]);
   const [digitalHumanBenchmarkStarting, setDigitalHumanBenchmarkStarting] = useState(false);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState("");
@@ -812,6 +833,20 @@ export default function Home() {
       return reports;
     } catch {
       setDigitalHumanBenchmarkReports([]);
+      return [];
+    }
+  }, []);
+
+  const loadDigitalHumanServiceStatuses = useCallback(async () => {
+    try {
+      const res = await fetch("/api/digital-human-service/status");
+      if (!res.ok) throw new Error(await res.text());
+      const payload = (await res.json()) as { services?: LocalDigitalHumanServiceStatus[] };
+      const services = Array.isArray(payload.services) ? payload.services : [];
+      setDigitalHumanServiceStatuses(services);
+      return services;
+    } catch {
+      setDigitalHumanServiceStatuses([]);
       return [];
     }
   }, []);
@@ -1036,13 +1071,15 @@ export default function Home() {
   useEffect(() => {
     void loadWorkerStatus();
     void loadDigitalHumanBenchmarkReports();
+    void loadDigitalHumanServiceStatuses();
     const timer = window.setInterval(() => {
       void loadWorkerStatus();
       void loadDigitalHumanBenchmarkReports();
+      void loadDigitalHumanServiceStatuses();
     }, 5000);
 
     return () => window.clearInterval(timer);
-  }, [loadDigitalHumanBenchmarkReports, loadWorkerStatus]);
+  }, [loadDigitalHumanBenchmarkReports, loadDigitalHumanServiceStatuses, loadWorkerStatus]);
 
   const selectedAssetList = useMemo(
     () => assets.filter((asset) => selectedAssets.includes(asset.id)),
@@ -1325,6 +1362,9 @@ export default function Home() {
           ? `${payload.label ?? "本地数字人服务"} 已在线；请保存并检查 ${endpoint}${logHint}`
           : `已启动 ${payload.label ?? "本地数字人服务"}；请保存并检查 ${endpoint}${logHint}`,
       );
+      window.setTimeout(() => {
+        void loadDigitalHumanServiceStatuses();
+      }, 1500);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "未知错误";
       setStatus("本地数字人服务启动失败: " + message);
@@ -2598,6 +2638,44 @@ export default function Home() {
                       </button>
                     ))}
                   </div>
+                  {digitalHumanServiceStatuses.length > 0 && (
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      {digitalHumanServiceStatuses.map((serviceStatus) => {
+                        const logTail = (serviceStatus.stderrTail || serviceStatus.stdoutTail).slice(-320);
+                        return (
+                          <div
+                            className="rounded-lg border border-white/8 bg-black/15 p-2.5"
+                            key={serviceStatus.service}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-xs font-semibold text-white">{serviceStatus.label}</div>
+                                <div className="mt-0.5 truncate text-[10px] text-white/35">
+                                  {serviceStatus.state?.pid ? `PID ${serviceStatus.state.pid}` : "未记录 Web 启动 PID"}
+                                  {" · "}
+                                  {serviceStatus.state?.script ?? serviceStatus.generateEndpoint}
+                                </div>
+                              </div>
+                              <span
+                                className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                  serviceStatus.healthy
+                                    ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
+                                    : "border-amber-300/20 bg-amber-300/10 text-amber-100"
+                                }`}
+                              >
+                                {serviceStatus.healthy ? "在线" : "离线"}
+                              </span>
+                            </div>
+                            {logTail && (
+                              <div className="mt-2 max-h-16 overflow-hidden whitespace-pre-wrap break-words rounded-md border border-white/8 bg-black/25 p-2 font-mono text-[10px] leading-4 text-white/45">
+                                {logTail}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 

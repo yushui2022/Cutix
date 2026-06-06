@@ -178,6 +178,14 @@ platform/data/digital-human-services/
 
 其中 `*.out.log` / `*.err.log` 用于排查服务启动失败、模型路径错误、端口占用或 Duix 原生接口不可达等问题；`*.json` 记录最近一次由 Web 启动的 PID、endpoint 和脚本名。这些文件属于本地运行数据，不应提交到 Git。
 
+Web 后台会轮询：
+
+```text
+GET /api/digital-human-service/status
+```
+
+该接口会返回 Duix Adapter 和 MuseTalk Service 的默认 health 状态、最近一次 Web 启动 state，以及 stdout/stderr 的尾部内容。系统设置里的本地服务面板会直接显示在线/离线、PID、脚本名和最近日志片段。
+
 默认生成接口：
 
 ```text

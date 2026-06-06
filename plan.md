@@ -520,6 +520,11 @@ worker_events   — Worker 日志
 - 每次 Web 启动会写入对应服务的 `*.json` 状态文件，记录 service、script、pid、endpoint、healthEndpoint 和启动时间。
 - 前端启动成功提示会显示 stderr 日志路径，客户现场如果端口占用、模型路径错误或 Duix 原生接口不可达，可以直接定位日志。
 
+### 已完成：本地数字人服务状态面板
+
+- 新增 `GET /api/digital-human-service/status`，汇总 Duix Adapter 和 MuseTalk Service 的 health 状态、最近 Web 启动 state、stdout/stderr 日志尾部。
+- Web 系统设置里的本地服务区域会显示在线/离线、PID、脚本名和最近日志片段，便于客户现场排查启动失败和路径映射问题。
+
 ### 下一步
 
 - 跑通 `Cutix -> Duix/HeyGem 本地服务 -> /api/digital-human -> Remotion -> MP4` 的真实样片，不再接受无声占位或纯 demo 输出。
